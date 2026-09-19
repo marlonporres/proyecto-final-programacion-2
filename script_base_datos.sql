@@ -4,13 +4,14 @@
 -- Programación II - UMG
 -- =============================================================
 
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'FacturacionDB')
+-- Usamos la base de datos 'Estudiantes' del repositorio origen o la creamos si no existe
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'Estudiantes')
 BEGIN
-    CREATE DATABASE FacturacionDB;
+    CREATE DATABASE Estudiantes;
 END
 GO
 
-USE FacturacionDB;
+USE Estudiantes;
 GO
 
 -- 1. Eliminar tablas previas si existen (respetando orden de dependencias)
@@ -160,10 +161,10 @@ INSERT INTO dbo.cliente (nit, nombre, direccion, telefono, correo) VALUES
 ('9876543-2', 'Tecnología Global de Centroamérica', 'Diagonal 6 10-01 Zona 10', '24556677', 'ventas@tecglobal.gt');
 
 -- Usuarios
-INSERT INTO dbo.usuario (nombre, nombreUsuario, rol, activo) VALUES
+INSERT INTO dbo.usuario (nombre, nombre_usuario, rol, activo) VALUES
 ('Administrador del Sistema', 'admin', 'ADMINISTRADOR', 1),
 ('Marlon Porres', 'mporres', 'SUPERVISOR', 1),
 ('Cajero Turno Matutino', 'cajero1', 'CAJERO', 1);
 
-PRINT 'Base de datos FacturacionDB creada y poblada exitosamente.';
+PRINT 'Base de datos Estudiantes actualizada con tablas de facturación y poblada exitosamente.';
 GO
