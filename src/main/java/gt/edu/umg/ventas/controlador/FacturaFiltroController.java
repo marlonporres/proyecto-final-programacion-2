@@ -80,7 +80,7 @@ public class FacturaFiltroController {
                             p.getCodigo(),
                             p.getNombre(),
                             FormatoMoneda.formatear(p.getPrecioVenta()),
-                            p.getInventario() != null ? p.getInventario().getExistencia() : "0"
+                            "-"
                     });
                 }
             }

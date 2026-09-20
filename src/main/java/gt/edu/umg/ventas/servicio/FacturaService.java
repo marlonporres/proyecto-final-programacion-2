@@ -38,7 +38,7 @@ public class FacturaService {
     }
 
     public FacturaService(FacturaDAO facturaDAO, ProductoDAO productoDAO) {
-        this.facturaDAO = facturaDAO != null ? facturaDAO : new FacturaDAOImpl();
+        this.facturaDAO = facturaDAO;
         this.productoDAO = productoDAO;
     }
 
@@ -87,19 +87,13 @@ public class FacturaService {
         if (cantidad == null || cantidad.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("La cantidad debe ser estrictamente mayor a cero.");
         }
-        if (producto.getInventario() == null || !producto.getInventario().hayDisponibilidad(cantidad)) {
-            BigDecimal disp = producto.getInventario() != null ? producto.getInventario().getExistencia() : BigDecimal.ZERO;
-            throw new IllegalStateException("Inventario insuficiente para el producto '" + producto.getNombre() 
-                    + "'. Disponible: " + disp + ", Solicitado: " + cantidad);
-        }
-
         factura.agregarDetalle(producto, cantidad);
         return factura;
     }
 
     /**
-     * Emite una factura: valida detalles, valida inventario, descuenta stock,
-     * cambia el estado a EMITIDA y persiste la información en la base de datos.
+     * Emite una factura: valida detalles, cambia el estado a EMITIDA y persiste.
+     * El descuento físico de stock se gestiona en el despacho de la Orden de Venta.
      *
      * @param idFactura ID de la factura
      * @return Factura emitida
@@ -117,36 +111,14 @@ public class FacturaService {
             throw new IllegalStateException("No se puede emitir una factura sin líneas de detalle.");
         }
 
-        // 1. Validar disponibilidad de inventario para todas las líneas
-        for (DetalleFactura det : factura.getDetalles()) {
-            Producto prod = det.getProducto();
-            if (prod == null || prod.getInventario() == null || !prod.getInventario().hayDisponibilidad(det.getCantidad())) {
-                BigDecimal disp = (prod != null && prod.getInventario() != null) ? prod.getInventario().getExistencia() : BigDecimal.ZERO;
-                String nom = (prod != null) ? prod.getNombre() : "Desconocido";
-                throw new IllegalStateException("Stock insuficiente para '" + nom + "'. Disponible: " + disp + ", Requerido: " + det.getCantidad());
-            }
-        }
-
-        // 2. Descontar inventario de cada producto
-        for (DetalleFactura det : factura.getDetalles()) {
-            Producto prod = det.getProducto();
-            prod.getInventario().descontar(det.getCantidad());
-            if (productoDAO != null && prod.getInventario().getIdInventario() > 0) {
-                try {
-                    productoDAO.actualizarInventario(prod.getInventario().getIdInventario(), prod.getInventario().getExistencia());
-                } catch (Exception e) {
-                    System.err.println("Advertencia al actualizar inventario en BD: " + e.getMessage());
-                }
-            }
-        }
-
-        // 3. Cambiar estado a EMITIDA
+        // 1. Cambiar estado a EMITIDA
         factura.setEstado(EstadoFactura.EMITIDA);
 
         // 4. Persistir mediante DAO si está disponible
         if (facturaDAO != null) {
             try {
                 facturaDAO.guardar(factura);
+                facturasActivas.put(factura.getIdFactura(), factura);
             } catch (Exception e) {
                 System.err.println("Advertencia al persistir factura mediante DAO: " + e.getMessage());
             }
@@ -202,24 +174,6 @@ public class FacturaService {
         if (factura.getEstado() == EstadoFactura.ANULADA) {
             throw new IllegalStateException("La factura ya se encuentra ANULADA.");
         }
-
-        // Si fue EMITIDA o PAGADA, se debe devolver el inventario
-        if (factura.getEstado() == EstadoFactura.EMITIDA || factura.getEstado() == EstadoFactura.PAGADA) {
-            for (DetalleFactura det : factura.getDetalles()) {
-                Producto prod = det.getProducto();
-                if (prod != null && prod.getInventario() != null) {
-                    prod.getInventario().reponer(det.getCantidad());
-                    if (productoDAO != null && prod.getInventario().getIdInventario() > 0) {
-                        try {
-                            productoDAO.actualizarInventario(prod.getInventario().getIdInventario(), prod.getInventario().getExistencia());
-                        } catch (Exception e) {
-                            System.err.println("Advertencia al reponer inventario en BD: " + e.getMessage());
-                        }
-                    }
-                }
-            }
-        }
-
         factura.setEstado(EstadoFactura.ANULADA);
 
         if (facturaDAO != null && factura.getIdFactura() > 0) {

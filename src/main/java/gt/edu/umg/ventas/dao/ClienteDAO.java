@@ -10,6 +10,8 @@ public interface ClienteDAO {
 
     void guardar(Cliente cliente);
 
+    void actualizar(Cliente cliente);
+
     Cliente buscarPorId(long idCliente);
 
     Cliente buscarPorNit(String nit);

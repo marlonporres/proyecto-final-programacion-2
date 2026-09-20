@@ -1,20 +1,18 @@
 package gt.edu.umg.ventas.dao;
 
 import gt.edu.umg.ventas.modelo.Categoria;
-import gt.edu.umg.ventas.modelo.Inventario;
 import gt.edu.umg.ventas.modelo.Producto;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Implementación JDBC para ProductoDAO.
+ * Exclusivamente maneja catálogo de productos.
  */
 public class ProductoDAOImpl implements ProductoDAO {
 
@@ -42,7 +40,7 @@ public class ProductoDAOImpl implements ProductoDAO {
         } catch (SQLException e) {
             throw new RuntimeException("Error al buscar producto por ID: " + e.getMessage(), e);
         }
-        throw new RuntimeException("Producto no encontrado");
+        return null;
     }
 
     @Override
@@ -59,7 +57,7 @@ public class ProductoDAOImpl implements ProductoDAO {
         } catch (SQLException e) {
             throw new RuntimeException("Error al buscar producto por código: " + e.getMessage(), e);
         }
-        throw new RuntimeException("Producto no encontrado");
+        return null;
     }
 
     @Override
@@ -98,26 +96,11 @@ public class ProductoDAOImpl implements ProductoDAO {
         return lista;
     }
 
-    @Override
-    public void actualizarInventario(long idInventario, BigDecimal nuevaExistencia) {
-        String sql = "UPDATE dbo.inventario SET existencia = ?, actualizado_en = SYSDATETIME() WHERE id_inventario = ?";
-        try (Connection con = conexion.obtenerConexion();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setBigDecimal(1, nuevaExistencia);
-            ps.setLong(2, idInventario);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new RuntimeException("Error al actualizar existencia en inventario: " + e.getMessage(), e);
-        }
-    }
-
     private String baseSelect() {
         return "SELECT p.id_producto, p.codigo, p.nombre, p.descripcion, p.precio_venta, p.activo, "
-                + "c.id_categoria, c.nombre AS cat_nombre, c.descripcion AS cat_desc, c.activa AS cat_activa, "
-                + "i.id_inventario, i.existencia, i.stock_minimo, i.actualizado_en "
+                + "c.id_categoria, c.nombre AS cat_nombre, c.descripcion AS cat_desc, c.activa AS cat_activa "
                 + "FROM dbo.producto p "
-                + "INNER JOIN dbo.categoria c ON p.categoria_id = c.id_categoria "
-                + "INNER JOIN dbo.inventario i ON p.inventario_id = i.id_inventario ";
+                + "INNER JOIN dbo.categoria c ON p.categoria_id = c.id_categoria ";
     }
 
     private Producto mapearProducto(ResultSet rs) throws SQLException {
@@ -127,13 +110,6 @@ public class ProductoDAOImpl implements ProductoDAO {
                 rs.getString("cat_desc"),
                 rs.getBoolean("cat_activa")
         );
-        Timestamp ts = rs.getTimestamp("actualizado_en");
-        Inventario inv = new Inventario(
-                rs.getLong("id_inventario"),
-                rs.getBigDecimal("existencia"),
-                rs.getBigDecimal("stock_minimo"),
-                ts != null ? ts.toLocalDateTime() : null
-        );
         return new Producto(
                 rs.getLong("id_producto"),
                 rs.getString("codigo"),
@@ -141,10 +117,7 @@ public class ProductoDAOImpl implements ProductoDAO {
                 rs.getString("descripcion"),
                 rs.getBigDecimal("precio_venta"),
                 rs.getBoolean("activo"),
-                cat,
-                inv
+                cat
         );
     }
 }
-
-

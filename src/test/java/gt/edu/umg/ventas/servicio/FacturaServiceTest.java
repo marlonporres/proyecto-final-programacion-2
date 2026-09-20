@@ -4,7 +4,6 @@ import gt.edu.umg.ventas.modelo.Categoria;
 import gt.edu.umg.ventas.modelo.Cliente;
 import gt.edu.umg.ventas.modelo.EstadoFactura;
 import gt.edu.umg.ventas.modelo.Factura;
-import gt.edu.umg.ventas.modelo.Inventario;
 import gt.edu.umg.ventas.modelo.Producto;
 import gt.edu.umg.ventas.modelo.Usuario;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,7 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,18 +25,15 @@ public class FacturaServiceTest {
 
     @BeforeEach
     public void setUp() {
-        // Inicializamos el servicio sin dependencias obligatorias de BD para pruebas unitarias puras
         servicio = new FacturaService(null, null);
 
         cliente = new Cliente(1L, "112233-4", "Cliente Prueba", "Guatemala", "22334455", "cliente@prueba.com");
         usuario = new Usuario(1L, "Marlon Porres", "admin", "ADMIN", true);
 
         Categoria cat = new Categoria(1L, "General", "General", true);
-        Inventario inv1 = new Inventario(1L, new BigDecimal("10.00"), new BigDecimal("2.00"), LocalDateTime.now());
-        Inventario inv2 = new Inventario(2L, new BigDecimal("5.00"), new BigDecimal("1.00"), LocalDateTime.now());
 
-        productoActivo = new Producto(1L, "PROD-A", "Producto Activo", "Desc", new BigDecimal("100.00"), true, cat, inv1);
-        productoInactivo = new Producto(2L, "PROD-I", "Producto Inactivo", "Desc", new BigDecimal("50.00"), false, cat, inv2);
+        productoActivo = new Producto(1L, "PROD-A", "Producto Activo", "Desc", new BigDecimal("100.00"), true, cat);
+        productoInactivo = new Producto(2L, "PROD-I", "Producto Inactivo", "Desc", new BigDecimal("50.00"), false, cat);
     }
 
     @Test
@@ -60,15 +55,6 @@ public class FacturaServiceTest {
     }
 
     @Test
-    @DisplayName("No debe permitir agregar más de la disponibilidad de inventario")
-    public void testAgregarSinStock() {
-        Factura f = servicio.crear(cliente, usuario);
-        // Disponibilidad actual: 10.00. Solicitado: 10.01
-        assertThrows(IllegalStateException.class, () -> 
-                servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("10.01")));
-    }
-
-    @Test
     @DisplayName("No debe permitir emitir facturas sin detalles")
     public void testEmitirFacturaSinDetalles() {
         Factura f = servicio.crear(cliente, usuario);
@@ -76,18 +62,15 @@ public class FacturaServiceTest {
     }
 
     @Test
-    @DisplayName("Debe descontar inventario y cambiar estado a EMITIDA al emitir")
+    @DisplayName("Debe cambiar estado a EMITIDA al emitir")
     public void testEmitirFacturaConExito() {
         Factura f = servicio.crear(cliente, usuario);
         servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("3.00"));
 
-        assertEquals(new BigDecimal("10.00"), productoActivo.getInventario().getExistencia());
         assertEquals(EstadoFactura.BORRADOR, f.getEstado());
 
         Factura emitida = servicio.emitir(f.getIdFactura());
         assertEquals(EstadoFactura.EMITIDA, emitida.getEstado());
-        // Inventario descontado: 10.00 - 3.00 = 7.00
-        assertEquals(new BigDecimal("7.00"), productoActivo.getInventario().getExistencia());
     }
 
     @Test
@@ -101,16 +84,14 @@ public class FacturaServiceTest {
     }
 
     @Test
-    @DisplayName("Debe reponer inventario al anular una factura previamente emitida")
-    public void testAnularFacturaReponeInventario() {
+    @DisplayName("Debe cambiar estado a ANULADA al anular factura")
+    public void testAnularFactura() {
         Factura f = servicio.crear(cliente, usuario);
         servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("4.00"));
         servicio.emitir(f.getIdFactura());
-        assertEquals(new BigDecimal("6.00"), productoActivo.getInventario().getExistencia());
+        assertEquals(EstadoFactura.EMITIDA, f.getEstado());
 
         servicio.anular(f.getIdFactura());
         assertEquals(EstadoFactura.ANULADA, f.getEstado());
-        // Inventario repuesto: 6.00 + 4.00 = 10.00
-        assertEquals(new BigDecimal("10.00"), productoActivo.getInventario().getExistencia());
     }
 }

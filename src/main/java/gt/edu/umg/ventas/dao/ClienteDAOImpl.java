@@ -48,6 +48,23 @@ public class ClienteDAOImpl implements ClienteDAO {
     }
 
     @Override
+    public void actualizar(Cliente cliente) {
+        String sql = "UPDATE dbo.cliente SET nit = ?, nombre = ?, direccion = ?, telefono = ?, correo = ? WHERE id_cliente = ?";
+        try (Connection con = conexion.obtenerConexion();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, cliente.getNit());
+            ps.setString(2, cliente.getNombre());
+            ps.setString(3, cliente.getDireccion());
+            ps.setString(4, cliente.getTelefono());
+            ps.setString(5, cliente.getCorreo());
+            ps.setLong(6, cliente.getIdCliente());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error al actualizar cliente: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public Cliente buscarPorId(long idCliente) {
         String sql = "SELECT id_cliente, nit, nombre, direccion, telefono, correo FROM dbo.cliente WHERE id_cliente = ?";
         try (Connection con = conexion.obtenerConexion();
@@ -61,7 +78,7 @@ public class ClienteDAOImpl implements ClienteDAO {
         } catch (SQLException e) {
             throw new RuntimeException("Error al buscar cliente por ID: " + e.getMessage(), e);
         }
-        throw new RuntimeException("Cliente no encontrado");
+        return null;
     }
 
     @Override
@@ -78,7 +95,7 @@ public class ClienteDAOImpl implements ClienteDAO {
         } catch (SQLException e) {
             throw new RuntimeException("Error al buscar cliente por NIT: " + e.getMessage(), e);
         }
-        throw new RuntimeException("Cliente no encontrado");
+        return null;
     }
 
     @Override

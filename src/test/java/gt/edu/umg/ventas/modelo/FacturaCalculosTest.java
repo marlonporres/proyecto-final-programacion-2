@@ -23,11 +23,9 @@ public class FacturaCalculosTest {
         factura = new Factura(1L, "FAC-001", LocalDateTime.now(), EstadoFactura.BORRADOR, "Nota de prueba", cliente, usuario);
 
         Categoria categoria = new Categoria(1L, "Ferretería", "Herramientas", true);
-        Inventario inv1 = new Inventario(1L, new BigDecimal("100.00"), new BigDecimal("10.00"), LocalDateTime.now());
-        Inventario inv2 = new Inventario(2L, new BigDecimal("50.00"), new BigDecimal("5.00"), LocalDateTime.now());
 
-        producto1 = new Producto(1L, "P1", "Martillo", "16oz", new BigDecimal("50.00"), true, categoria, inv1);
-        producto2 = new Producto(2L, "P2", "Taladro", "650W", new BigDecimal("200.00"), true, categoria, inv2);
+        producto1 = new Producto(1L, "P1", "Martillo", "16oz", new BigDecimal("50.00"), true, categoria);
+        producto2 = new Producto(2L, "P2", "Taladro", "650W", new BigDecimal("200.00"), true, categoria);
     }
 
     @Test

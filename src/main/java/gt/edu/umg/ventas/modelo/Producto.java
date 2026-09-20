@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 /**
  * Representa un producto del catálogo de ventas.
+ * El stock no pertenece directamente a Producto, sino a ExistenciaInventario por Bodega.
  */
 public class Producto {
 
@@ -14,16 +15,14 @@ public class Producto {
     private BigDecimal precioVenta;
     private boolean activo;
     private Categoria categoria;
-    private Inventario inventario;
 
     public Producto() {
         this.precioVenta = BigDecimal.ZERO;
         this.activo = true;
-        this.inventario = new Inventario();
     }
 
     public Producto(long idProducto, String codigo, String nombre, String descripcion, 
-                    BigDecimal precioVenta, boolean activo, Categoria categoria, Inventario inventario) {
+                    BigDecimal precioVenta, boolean activo, Categoria categoria) {
         this.idProducto = idProducto;
         this.codigo = codigo;
         this.nombre = nombre;
@@ -31,15 +30,8 @@ public class Producto {
         this.precioVenta = precioVenta != null ? precioVenta : BigDecimal.ZERO;
         this.activo = activo;
         this.categoria = categoria;
-        this.inventario = inventario != null ? inventario : new Inventario();
     }
 
-    /**
-     * Actualiza el precio de venta del producto.
-     *
-     * @param precio Nuevo precio de venta
-     * @throws IllegalArgumentException si el precio es nulo o menor a cero
-     */
     public void actualizarPrecio(BigDecimal precio) {
         if (precio == null || precio.compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("El precio no puede ser nulo ni negativo.");
@@ -101,14 +93,6 @@ public class Producto {
 
     public void setCategoria(Categoria categoria) {
         this.categoria = categoria;
-    }
-
-    public Inventario getInventario() {
-        return inventario;
-    }
-
-    public void setInventario(Inventario inventario) {
-        this.inventario = inventario;
     }
 
     @Override

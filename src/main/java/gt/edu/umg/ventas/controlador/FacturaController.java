@@ -14,6 +14,10 @@ import gt.edu.umg.ventas.modelo.Producto;
 import gt.edu.umg.ventas.modelo.Usuario;
 import gt.edu.umg.ventas.servicio.FacturaService;
 import gt.edu.umg.ventas.util.FormatoMoneda;
+import gt.edu.umg.ventas.dao.OrdenVentaDAO;
+import gt.edu.umg.ventas.dao.OrdenVentaDAOImpl;
+import gt.edu.umg.ventas.modelo.DetalleOrdenVenta;
+import gt.edu.umg.ventas.modelo.OrdenVenta;
 import gt.edu.umg.ventas.vista.FrmFacturaFiltro;
 import gt.edu.umg.ventas.vista.PantallaFacturacion;
 
@@ -33,6 +37,7 @@ public class FacturaController {
     private final FacturaService servicio;
     private final ProductoDAO productoDAO;
     private final ClienteDAO clienteDAO;
+    private final gt.edu.umg.ventas.servicio.InventarioService inventarioService;
 
     private Factura facturaActual;
     private Producto productoSeleccionado;
@@ -47,6 +52,7 @@ public class FacturaController {
         this.servicio = servicio != null ? servicio : new FacturaService();
         this.productoDAO = new ProductoDAOImpl();
         this.clienteDAO = new ClienteDAOImpl();
+        this.inventarioService = new gt.edu.umg.ventas.servicio.InventarioService();
 
         // Usuario predeterminado del sistema (Cajero / Administrador)
         this.usuarioSesion = new Usuario(1L, "Marlon Porres", "admin", "ADMINISTRADOR", true);
@@ -71,6 +77,68 @@ public class FacturaController {
         vista.getBtnConsultar().addActionListener(e -> consultarInteractivo());
         vista.getBtnAnular().addActionListener(e -> anularFacturaActual());
         vista.getBtnRegistrarPago().addActionListener(e -> registrarPago());
+        vista.getBtnCargarOrden().addActionListener(e -> cargarDesdeOrdenInteractivo());
+    }
+
+    private void cargarDesdeOrdenInteractivo() {
+        String input = JOptionPane.showInputDialog(vista, 
+                "Ingrese el ID o Número de Orden de Venta a facturar (ej: 1 o OV-XXXX):", 
+                "Cargar Orden de Venta", JOptionPane.QUESTION_MESSAGE);
+        if (input == null || input.isBlank()) return;
+
+        try {
+            OrdenVentaDAO dao = new OrdenVentaDAOImpl();
+            OrdenVenta orden = null;
+            if (input.trim().toUpperCase().startsWith("OV-")) {
+                for (OrdenVenta ov : dao.obtenerTodos()) {
+                    if (ov.getNumeroOrden().equalsIgnoreCase(input.trim())) {
+                        orden = dao.obtener(ov.getId());
+                        break;
+                    }
+                }
+            } else {
+                int id = Integer.parseInt(input.trim());
+                orden = dao.obtener(id);
+            }
+
+            if (orden == null) {
+                JOptionPane.showMessageDialog(vista, "No se encontró ninguna orden con el identificador: " + input, 
+                        "No Encontrada", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            cargarDesdeOrden(orden);
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(vista, "Identificador de orden inválido.", "Validación", JOptionPane.WARNING_MESSAGE);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(vista, "Error al buscar orden: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    public void cargarDesdeOrden(OrdenVenta orden) {
+        if (orden == null) {
+            JOptionPane.showMessageDialog(vista, "Seleccione una orden de venta válida.", "Aviso", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        try {
+            this.facturaActual = servicio.crear(orden.getCliente(), usuarioSesion);
+            this.facturaActual.setOrden(orden);
+            this.facturaActual.setObservaciones("Facturación de Orden " + orden.getNumeroOrden());
+
+            for (DetalleOrdenVenta det : orden.getDetalles()) {
+                facturaActual.agregarDetalle(det.getProducto(), new BigDecimal(det.getCantidad()));
+            }
+
+            vista.mostrarFactura(facturaActual);
+            JOptionPane.showMessageDialog(vista,
+                    "Orden " + orden.getNumeroOrden() + " cargada en Factura exitosamente.\n"
+                    + "Cliente: " + orden.getCliente().getNombre() + "\n"
+                    + "Líneas agregadas: " + orden.getDetalles().size(),
+                    "Orden Cargada", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(vista, "Error al cargar orden en factura: " + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     /**
@@ -197,6 +265,13 @@ public class FacturaController {
                 return;
             }
 
+            int stockDisp = inventarioService.obtenerDisponibilidadTotal(productoSeleccionado.getIdProducto());
+            if (cantidad.intValue() > stockDisp) {
+                JOptionPane.showMessageDialog(vista, "Stock insuficiente. Disponible: " + stockDisp, 
+                        "Aviso", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
             // Agregar a la factura mediante el servicio
             servicio.agregarProducto(facturaActual.getIdFactura(), productoSeleccionado, cantidad);
 
@@ -228,8 +303,9 @@ public class FacturaController {
 
         int fila = vista.getTblDetalle().getSelectedRow();
         if (fila < 0) {
-            JOptionPane.showMessageDialog(vista, "Seleccione un producto de la tabla para eliminarlo.", 
-                    "Aviso", JOptionPane.WARNING_MESSAGE);
+            // Si no hay fila seleccionada en la tabla, limpiamos los campos de búsqueda
+            productoSeleccionado = null;
+            vista.limpiarCamposProducto();
             return;
         }
 
@@ -432,7 +508,10 @@ public class FacturaController {
         vista.getTxtCodigoProd().setText(p.getCodigo());
         vista.getTxtNombreProd().setText(p.getNombre());
         vista.getTxtPrecioProd().setText(FormatoMoneda.formatear(p.getPrecioVenta()));
-        vista.getTxtStockProd().setText(p.getInventario() != null ? p.getInventario().getExistencia().toString() : "0");
+
+        int stock = inventarioService.obtenerDisponibilidadTotal(p.getIdProducto());
+        vista.getTxtStockProd().setText(String.valueOf(stock));
+
         vista.getTxtCantidadProd().setText("1");
         vista.getTxtCantidadProd().requestFocus();
     }

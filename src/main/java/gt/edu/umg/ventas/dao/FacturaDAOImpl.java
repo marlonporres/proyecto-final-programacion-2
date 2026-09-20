@@ -5,7 +5,6 @@ import gt.edu.umg.ventas.modelo.Cliente;
 import gt.edu.umg.ventas.modelo.DetalleFactura;
 import gt.edu.umg.ventas.modelo.EstadoFactura;
 import gt.edu.umg.ventas.modelo.Factura;
-import gt.edu.umg.ventas.modelo.Inventario;
 import gt.edu.umg.ventas.modelo.MetodoPago;
 import gt.edu.umg.ventas.modelo.Pago;
 import gt.edu.umg.ventas.modelo.Producto;
@@ -337,12 +336,10 @@ public class FacturaDAOImpl implements FacturaDAO {
         String sqlDetalles = "SELECT d.id_detalle, d.cantidad, d.precio_unitario, d.porcentaje_impuesto, "
                 + "d.descuento, d.subtotal, "
                 + "p.id_producto, p.codigo, p.nombre AS prod_nombre, p.descripcion, p.precio_venta, p.activo, "
-                + "c.id_categoria, c.nombre AS cat_nombre, c.descripcion AS cat_desc, c.activa AS cat_activa, "
-                + "i.id_inventario, i.existencia, i.stock_minimo, i.actualizado_en "
+                + "c.id_categoria, c.nombre AS cat_nombre, c.descripcion AS cat_desc, c.activa AS cat_activa "
                 + "FROM dbo.detalle_factura d "
                 + "INNER JOIN dbo.producto p ON d.producto_id = p.id_producto "
                 + "INNER JOIN dbo.categoria c ON p.categoria_id = c.id_categoria "
-                + "INNER JOIN dbo.inventario i ON p.inventario_id = i.id_inventario "
                 + "WHERE d.factura_id = ?";
 
         try (PreparedStatement ps = con.prepareStatement(sqlDetalles)) {
@@ -355,8 +352,6 @@ public class FacturaDAOImpl implements FacturaDAO {
                             rs.getString("cat_desc"),
                             rs.getBoolean("cat_activa")
                     );
-                    Timestamp tsInv = rs.getTimestamp("actualizado_en");
-                    Inventario inv = new Inventario();
                     Producto prod = new Producto(
                             rs.getLong("id_producto"),
                             rs.getString("codigo"),
@@ -364,8 +359,7 @@ public class FacturaDAOImpl implements FacturaDAO {
                             rs.getString("descripcion"),
                             rs.getBigDecimal("precio_venta"),
                             rs.getBoolean("activo"),
-                            cat,
-                            inv
+                            cat
                     );
 
                     DetalleFactura det = new DetalleFactura(

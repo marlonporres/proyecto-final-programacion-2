@@ -61,11 +61,11 @@ public class PantallaFacturacion extends JInternalFrame {
     private JTextField txtReferenciaPago;
     private JButton btnRegistrarPago;
 
-    // Botones de acción principales
     private JButton btnNuevaFactura;
     private JButton btnEmitir;
     private JButton btnConsultar;
     private JButton btnAnular;
+    private JButton btnCargarOrden;
 
     public PantallaFacturacion() {
         super("Módulo de Facturación y Ventas", true, true, true, true);
@@ -97,9 +97,12 @@ public class PantallaFacturacion extends JInternalFrame {
 
         lblFecha = new JLabel("Fecha: Hoy");
 
+        btnCargarOrden = new JButton("📥 Cargar desde Orden");
+
         panelInfo.add(lblNumero);
         panelInfo.add(lblEstado);
         panelInfo.add(lblFecha);
+        panelInfo.add(btnCargarOrden);
 
         // 2. Datos del Cliente
         JPanel panelCliente = new JPanel(new GridBagLayout());
@@ -423,4 +426,5 @@ public class PantallaFacturacion extends JInternalFrame {
     public JButton getBtnEmitir() { return btnEmitir; }
     public JButton getBtnConsultar() { return btnConsultar; }
     public JButton getBtnAnular() { return btnAnular; }
+    public JButton getBtnCargarOrden() { return btnCargarOrden; }
 }

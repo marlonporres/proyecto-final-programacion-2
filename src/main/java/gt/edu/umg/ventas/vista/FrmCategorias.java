@@ -1,16 +1,63 @@
 package gt.edu.umg.ventas.vista;
+
+import gt.edu.umg.ventas.controlador.CategoriaController;
+import gt.edu.umg.ventas.modelo.Categoria;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.List;
+
 public class FrmCategorias extends JInternalFrame {
+
+    private final CategoriaController controller;
+    private JTable tblCategorias;
+    private DefaultTableModel modeloTabla;
+
     public FrmCategorias() {
-        super("Categorias", true, true, true, true);
-        setSize(600, 400);
-        JPanel pnlNorte = new JPanel(new GridLayout(2, 2));
-        pnlNorte.add(new JLabel("Nombre:")); pnlNorte.add(new JTextField());
-        pnlNorte.add(new JButton("Guardar")); pnlNorte.add(new JButton("Refrescar"));
+        super("Catálogo de Categorías", true, true, true, true);
+        this.controller = new CategoriaController();
+
+        setSize(650, 420);
+        setMinimumSize(new Dimension(550, 350));
+        initComponents();
+        cargarCategorias();
+    }
+
+    private void initComponents() {
+        setLayout(new BorderLayout(10, 10));
+
+        JPanel pnlNorte = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+        JButton btnRefrescar = new JButton("🔄 Refrescar");
+        btnRefrescar.addActionListener(e -> cargarCategorias());
+        pnlNorte.add(btnRefrescar);
         add(pnlNorte, BorderLayout.NORTH);
-        JTable tabla = new JTable(new DefaultTableModel(new String[]{"ID", "Nombre", "Descripcion"}, 0));
-        add(new JScrollPane(tabla), BorderLayout.CENTER);
+
+        String[] columnas = {"ID", "Nombre", "Descripción", "Activa"};
+        modeloTabla = new DefaultTableModel(columnas, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+        tblCategorias = new JTable(modeloTabla);
+        tblCategorias.setRowHeight(24);
+        add(new JScrollPane(tblCategorias), BorderLayout.CENTER);
+    }
+
+    public void cargarCategorias() {
+        try {
+            List<Categoria> lista = controller.listar();
+            modeloTabla.setRowCount(0);
+            for (Categoria c : lista) {
+                modeloTabla.addRow(new Object[]{
+                        c.getIdCategoria(),
+                        c.getNombre(),
+                        c.getDescripcion(),
+                        c.isActiva() ? "SÍ" : "NO"
+                });
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error al cargar categorías: " + ex.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 }

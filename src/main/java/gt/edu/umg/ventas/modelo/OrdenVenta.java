@@ -30,6 +30,7 @@ public class OrdenVenta {
     public String getObservaciones() { return observaciones; }
     public void setObservaciones(String observaciones) { this.observaciones = observaciones; }
     public BigDecimal getTotal() { return total; }
+    public void setTotal(BigDecimal total) { this.total = total; }
     public List<DetalleOrdenVenta> getDetalles() { return detalles; }
     public void setDetalles(List<DetalleOrdenVenta> detalles) { this.detalles = detalles; calcularTotal(); }
 

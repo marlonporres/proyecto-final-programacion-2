@@ -250,4 +250,12 @@ public class Factura {
             this.pagos.add(pago);
         }
     }
+
+    public OrdenVenta getOrden() {
+        return orden;
+    }
+
+    public void setOrden(OrdenVenta orden) {
+        this.orden = orden;
+    }
 }

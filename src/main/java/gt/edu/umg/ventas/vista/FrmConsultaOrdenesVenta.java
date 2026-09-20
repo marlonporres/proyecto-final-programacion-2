@@ -77,9 +77,8 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
                     r.getFecha().toLocalDate().toString(),
                     r.getNombreCliente(),
                     r.getEstado().name(),
-                    r.getTotal().toString(),
-                    r.getEstadoDespacho(),
-                    r.getNombreBodega()
+                    r.getEstadoDespacho() != null && !r.getEstadoDespacho().isBlank() ? r.getEstadoDespacho() : "Pendiente",
+                    r.getNombreBodega() != null && !r.getNombreBodega().isBlank() ? r.getNombreBodega() : "-"
                 });
             }
             if(resultados.isEmpty()){
