@@ -25,3 +25,7 @@ replay_pid*
 
 # Maven build directory
 target/
+
+# Database configuration
+src/main/resources/database.properties
+database.properties

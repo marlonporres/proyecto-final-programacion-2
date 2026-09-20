@@ -11,7 +11,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
-        <exec.mainClass>gt.edu.umg.facturacion.SistemaFacturacion</exec.mainClass>
+        <exec.mainClass>gt.edu.umg.ventas.SistemaVentas</exec.mainClass>
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
     </properties>
 
@@ -59,7 +59,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.1</version>
                 <configuration>
-                    <mainClass>gt.edu.umg.facturacion.SistemaFacturacion</mainClass>
+                    <mainClass>gt.edu.umg.ventas.SistemaVentas</mainClass>
                 </configuration>
             </plugin>
         </plugins>
