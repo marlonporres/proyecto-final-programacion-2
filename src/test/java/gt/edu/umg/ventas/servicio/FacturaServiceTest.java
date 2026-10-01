@@ -1,97 +1,79 @@
 package gt.edu.umg.ventas.servicio;
 
-import gt.edu.umg.ventas.modelo.Categoria;
-import gt.edu.umg.ventas.modelo.Cliente;
-import gt.edu.umg.ventas.modelo.EstadoFactura;
-import gt.edu.umg.ventas.modelo.Factura;
-import gt.edu.umg.ventas.modelo.Producto;
-import gt.edu.umg.ventas.modelo.Usuario;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-
+import gt.edu.umg.ventas.modelo.*;
+import org.junit.jupiter.api.*;
 import java.math.BigDecimal;
-
+import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("Pruebas Unitarias de Capa de Servicio - FacturaService")
-public class FacturaServiceTest {
+class FacturaServiceTest {
+    DatosPrueba datos;
+    FacturaService servicio;
+    @BeforeEach void preparar() { datos = new DatosPrueba(); servicio = datos.servicio(); }
+    Factura borrador() { return servicio.crearDesdeOrden(1, datos.usuario); }
+    Pago pago() { return new Pago(0, LocalDateTime.now(), new BigDecimal("56.00"), MetodoPago.EFECTIVO, "Prueba"); }
 
-    private FacturaService servicio;
-    private Cliente cliente;
-    private Usuario usuario;
-    private Producto productoActivo;
-    private Producto productoInactivo;
-
-    @BeforeEach
-    public void setUp() {
-        servicio = new FacturaService(null, null);
-
-        cliente = new Cliente(1L, "112233-4", "Cliente Prueba", "Guatemala", "22334455", "cliente@prueba.com");
-        usuario = new Usuario(1L, "Marlon Porres", "admin", "ADMIN", true);
-
-        Categoria cat = new Categoria(1L, "General", "General", true);
-
-        productoActivo = new Producto(1L, "PROD-A", "Producto Activo", "Desc", new BigDecimal("100.00"), true, cat);
-        productoInactivo = new Producto(2L, "PROD-I", "Producto Inactivo", "Desc", new BigDecimal("50.00"), false, cat);
+    @Test void rechazaOrdenPendiente() {
+        datos.orden.setEstado(EstadoOrdenVenta.PENDIENTE);
+        assertThrows(IllegalStateException.class, this::borrador);
     }
-
-    @Test
-    @DisplayName("No debe permitir agregar cantidades menores o iguales a cero")
-    public void testAgregarCantidadInvalida() {
-        Factura f = servicio.crear(cliente, usuario);
-        assertThrows(IllegalArgumentException.class, () -> 
-                servicio.agregarProducto(f.getIdFactura(), productoActivo, BigDecimal.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> 
-                servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("-1.00")));
+    @Test void rechazaOrdenSinDespachoConfirmado() {
+        datos.confirmado = false;
+        assertThrows(IllegalStateException.class, this::borrador);
     }
-
-    @Test
-    @DisplayName("No debe permitir agregar productos inactivos")
-    public void testAgregarProductoInactivo() {
-        Factura f = servicio.crear(cliente, usuario);
-        assertThrows(IllegalStateException.class, () -> 
-                servicio.agregarProducto(f.getIdFactura(), productoInactivo, new BigDecimal("1.00")));
+    @Test void copiaPrecioHistoricoYTotalDeOrden() {
+        Factura f = borrador();
+        assertEquals(new BigDecimal("10.00"), f.getDetalles().get(0).getPrecioUnitario());
+        assertEquals(datos.orden.getTotal(), f.calcularTotal());
+        assertEquals(5, f.getDetalles().get(0).getCantidad().intValueExact());
     }
-
-    @Test
-    @DisplayName("No debe permitir emitir facturas sin detalles")
-    public void testEmitirFacturaSinDetalles() {
-        Factura f = servicio.crear(cliente, usuario);
-        assertThrows(IllegalStateException.class, () -> servicio.emitir(f.getIdFactura()));
-    }
-
-    @Test
-    @DisplayName("Debe cambiar estado a EMITIDA al emitir")
-    public void testEmitirFacturaConExito() {
-        Factura f = servicio.crear(cliente, usuario);
-        servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("3.00"));
-
-        assertEquals(EstadoFactura.BORRADOR, f.getEstado());
-
-        Factura emitida = servicio.emitir(f.getIdFactura());
-        assertEquals(EstadoFactura.EMITIDA, emitida.getEstado());
-    }
-
-    @Test
-    @DisplayName("No debe permitir emitir facturas anuladas")
-    public void testEmitirFacturaAnulada() {
-        Factura f = servicio.crear(cliente, usuario);
-        servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("1.00"));
-        servicio.anular(f.getIdFactura());
-
-        assertThrows(IllegalStateException.class, () -> servicio.emitir(f.getIdFactura()));
-    }
-
-    @Test
-    @DisplayName("Debe cambiar estado a ANULADA al anular factura")
-    public void testAnularFactura() {
-        Factura f = servicio.crear(cliente, usuario);
-        servicio.agregarProducto(f.getIdFactura(), productoActivo, new BigDecimal("4.00"));
-        servicio.emitir(f.getIdFactura());
+    @Test void emiteYPersisteRelacion() {
+        Factura f = servicio.emitir(borrador().getIdFactura());
         assertEquals(EstadoFactura.EMITIDA, f.getEstado());
-
+        assertEquals(42, f.getIdFactura());
+        assertEquals(1, f.getOrden().getId());
+        assertSame(f, datos.guardada);
+    }
+    @Test void rechazaFacturaDuplicadaInclusoAnulada() {
+        Factura f = servicio.emitir(borrador().getIdFactura());
         servicio.anular(f.getIdFactura());
-        assertEquals(EstadoFactura.ANULADA, f.getEstado());
+        assertThrows(IllegalStateException.class, this::borrador);
+    }
+    @Test void errorPersistenciaConservaBorradorYPermiteReintento() {
+        Factura f = borrador(); datos.falloGuardar = true;
+        assertThrows(IllegalStateException.class, () -> servicio.emitir(f.getIdFactura()));
+        assertEquals(EstadoFactura.BORRADOR, f.getEstado());
+        datos.falloGuardar = false;
+        assertEquals(EstadoFactura.EMITIDA, servicio.emitir(f.getIdFactura()).getEstado());
+    }
+    @Test void dosBorradoresNoPermitenDosFacturas() {
+        Factura uno = borrador(), dos = borrador();
+        servicio.emitir(uno.getIdFactura());
+        assertThrows(IllegalStateException.class, () -> servicio.emitir(dos.getIdFactura()));
+    }
+    @Test void emisionRecargaCantidadesDelOrigen() {
+        Factura f = borrador(); f.getDetalles().get(0).setCantidad(BigDecimal.ONE);
+        assertEquals(new BigDecimal("56.00"), servicio.emitir(f.getIdFactura()).calcularTotal());
+    }
+    @Test void falloPagoNoCambiaEstadoNiPagosActivos() {
+        Factura f = servicio.emitir(borrador().getIdFactura()); datos.falloPago = true;
+        assertThrows(IllegalStateException.class, () -> servicio.registrarPago(f.getIdFactura(), pago()));
+        assertEquals(EstadoFactura.EMITIDA, f.getEstado()); assertTrue(f.getPagos().isEmpty());
+        datos.falloPago = false;
+        assertEquals(EstadoFactura.PAGADA, servicio.registrarPago(f.getIdFactura(), pago()).getEstado());
+    }
+    @Test void falloAnulacionNoCambiaEstadoActivo() {
+        Factura f = servicio.emitir(borrador().getIdFactura()); datos.falloAnular = true;
+        assertThrows(IllegalStateException.class, () -> servicio.anular(f.getIdFactura()));
+        assertEquals(EstadoFactura.EMITIDA, f.getEstado());
+    }
+    @Test void consultaTrasReiniciarServicioRecuperaOrden() {
+        Factura f = servicio.emitir(borrador().getIdFactura());
+        Factura recuperada = datos.servicio().consultarPorNumero(f.getNumero());
+        assertEquals(f.getOrden().getId(), recuperada.getOrden().getId());
+    }
+    @Test void rechazaPagoEnBorrador() {
+        Factura f = borrador();
+        assertThrows(IllegalStateException.class, () -> servicio.registrarPago(f.getIdFactura(), pago()));
     }
 }

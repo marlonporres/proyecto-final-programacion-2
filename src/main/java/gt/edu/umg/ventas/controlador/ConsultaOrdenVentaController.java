@@ -21,4 +21,7 @@ public class ConsultaOrdenVentaController {
         }
         return ordenVentaService.buscarPorFecha(desde, hasta);
     }
+    public List<gt.edu.umg.ventas.modelo.OperacionLinea> consultarDetalle(int idOrden) {
+        return new gt.edu.umg.ventas.servicio.ConsultaOperacionService().consultar(idOrden);
+    }
 }

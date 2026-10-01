@@ -11,4 +11,6 @@ public interface CategoriaDAO {
     Categoria buscarPorId(long idCategoria);
 
     List<Categoria> listar();
+    void guardar(Categoria categoria);
+    void actualizar(Categoria categoria);
 }

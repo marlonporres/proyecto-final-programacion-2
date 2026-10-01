@@ -14,13 +14,9 @@ public class SesionUsuario {
 
     public static synchronized Usuario getUsuarioActivo() {
         if (usuarioActivo == null) {
-            try {
-                UsuarioDAO dao = new UsuarioDAOImpl();
-                usuarioActivo = dao.buscarPorNombreUsuario("admin");
-            } catch (Exception e) {
-                // Fallback académico si la base no responde en pruebas aisladas
-                usuarioActivo = new Usuario(1L, "Administrador del Sistema", "admin", "ADMINISTRADOR", true);
-            }
+            UsuarioDAO dao = new UsuarioDAOImpl();
+            usuarioActivo = dao.buscarPorNombreUsuario("admin");
+            if (!usuarioActivo.isActivo()) throw new IllegalStateException("El usuario admin está inactivo.");
         }
         return usuarioActivo;
     }

@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.ConsultaOrdenVentaController;
 import gt.edu.umg.ventas.modelo.OrdenVentaResumen;
@@ -20,6 +21,7 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
     private JButton btnLimpiar;
     
     private ConsultaOrdenVentaController controller;
+    private List<OrdenVentaResumen> resultados = List.of();
 
     public FrmConsultaOrdenesVenta() {
         super("Consulta de Ordenes de Venta", true, true, true, true);
@@ -49,19 +51,25 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
         panelFiltros.add(spinHasta);
         panelFiltros.add(btnBuscar);
         panelFiltros.add(btnLimpiar);
+        JButton detalle = new JButton("Ver operación");
+        detalle.addActionListener(e -> mostrarDetalle());
+        panelFiltros.add(detalle);
 
-        String[] columnas = {"No. Orden", "Fecha", "Cliente", "Estado", "Total", "Despacho", "Bodega"};
+        String[] columnas = {"No. Orden", "Fecha", "Cliente", "Estado", "Total", "No. Despacho", "Despacho", "Bodega", "Factura", "Estado factura"};
         tableModel = new DefaultTableModel(columnas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
         };
         table = new JTable(tableModel);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        for (int i = 0; i < table.getColumnCount(); i++) table.getColumnModel().getColumn(i)
+                .setPreferredWidth(i == 0 || i == 5 || i == 8 ? 300 : 130);
 
         add(panelFiltros, BorderLayout.NORTH);
         add(new JScrollPane(table), BorderLayout.CENTER);
     }
 
-    private void buscar() {
+    public void buscar() {
         Date dDesde = (Date) spinDesde.getValue();
         Date dHasta = (Date) spinHasta.getValue();
         
@@ -69,7 +77,7 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
         LocalDateTime hasta = dHasta.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
         
         try {
-            List<OrdenVentaResumen> resultados = controller.buscar(desde, hasta);
+            resultados = controller.buscar(desde.toLocalDate().atStartOfDay(), hasta.toLocalDate().atStartOfDay());
             tableModel.setRowCount(0);
             for (OrdenVentaResumen r : resultados) {
                 tableModel.addRow(new Object[]{
@@ -77,15 +85,18 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
                     r.getFecha().toLocalDate().toString(),
                     r.getNombreCliente(),
                     r.getEstado().name(),
+                    r.getTotal(),
+                    r.getNumeroDespacho(),
                     r.getEstadoDespacho() != null && !r.getEstadoDespacho().isBlank() ? r.getEstadoDespacho() : "Pendiente",
-                    r.getNombreBodega() != null && !r.getNombreBodega().isBlank() ? r.getNombreBodega() : "-"
+                    r.getNombreBodega() != null && !r.getNombreBodega().isBlank() ? r.getNombreBodega() : "-",
+                    r.getNumeroFactura(), r.getEstadoFactura()
                 });
             }
             if(resultados.isEmpty()){
-                JOptionPane.showMessageDialog(this, "No se encontraron resultados en las fechas dadas.");
+                Dialogos.showMessageDialog(this, "No se encontraron resultados en las fechas dadas.");
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Error de validacion", JOptionPane.ERROR_MESSAGE);
+            Dialogos.showMessageDialog(this, ex.getMessage(), "Error de validacion", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -93,5 +104,27 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
         spinDesde.setValue(new Date());
         spinHasta.setValue(new Date());
         tableModel.setRowCount(0);
+        resultados = List.of();
+    }
+
+    private void mostrarDetalle() {
+        int fila = table.getSelectedRow();
+        if (fila < 0) { Dialogos.showMessageDialog(this, "Seleccione una operación."); return; }
+        try {
+            int id = resultados.get(table.convertRowIndexToModel(fila)).getId();
+            DefaultTableModel datos = new DefaultTableModel(new String[]{"Orden", "Producto", "Solicitado", "Despachado",
+                    "Precio", "Bodega", "Despacho", "Movimiento", "Salida", "Factura", "Total factura"}, 0) {
+                @Override public boolean isCellEditable(int fila, int columna) { return false; }
+            };
+            for (var linea : controller.consultarDetalle(id)) datos.addRow(new Object[]{linea.numeroOrden(), linea.codigoProducto(),
+                    linea.cantidadSolicitada(), linea.cantidadDespachada(), linea.precioUnitario(), linea.bodega(),
+                    linea.numeroDespacho(), linea.tipoMovimiento(), linea.cantidadSalida(), linea.numeroFactura(), linea.totalFactura()});
+            JTable detalle = new JTable(datos);
+            detalle.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+            for (int i = 0; i < detalle.getColumnCount(); i++) detalle.getColumnModel().getColumn(i).setPreferredWidth(140);
+            JScrollPane panel = new JScrollPane(detalle);
+            panel.setPreferredSize(new Dimension(1000, 300));
+            Dialogos.showMessageDialog(this, panel, "Detalle de la operación", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception e) { Dialogos.showMessageDialog(this, e.getMessage(), "Error de consulta", JOptionPane.ERROR_MESSAGE); }
     }
 }

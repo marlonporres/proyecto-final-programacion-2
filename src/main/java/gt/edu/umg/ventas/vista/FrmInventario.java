@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.InventarioController;
 import gt.edu.umg.ventas.modelo.Bodega;
@@ -71,6 +72,9 @@ public class FrmInventario extends JInternalFrame {
             consultarInventario();
         });
         pnlNorte.add(btnRefrescar);
+        JButton entrada = new JButton("Registrar entrada");
+        entrada.addActionListener(e -> registrarEntrada());
+        pnlNorte.add(entrada);
 
         add(pnlNorte, BorderLayout.NORTH);
 
@@ -94,7 +98,7 @@ public class FrmInventario extends JInternalFrame {
                 cmbBodega.addItem(new BodegaItem(b));
             }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Error al cargar bodegas: " + e.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al cargar bodegas: " + e.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -119,8 +123,26 @@ public class FrmInventario extends JInternalFrame {
                 });
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error al consultar inventario: " + ex.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al consultar inventario: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+    private void registrarEntrada() {
+        try {
+            JComboBox<gt.edu.umg.ventas.modelo.Producto> productos = new JComboBox<>(new gt.edu.umg.ventas.dao.ProductoDAOImpl()
+                    .listar().stream().filter(gt.edu.umg.ventas.modelo.Producto::isActivo).toArray(gt.edu.umg.ventas.modelo.Producto[]::new));
+            JComboBox<Bodega> bodegas = new JComboBox<>(new gt.edu.umg.ventas.dao.BodegaDAOImpl()
+                    .obtenerTodos().stream().filter(Bodega::isActiva).toArray(Bodega[]::new));
+            JTextField cantidad = new JTextField("1"), referencia = new JTextField();
+            JPanel panel = new JPanel(new GridLayout(0, 2, 8, 8));
+            panel.add(new JLabel("Producto")); panel.add(productos); panel.add(new JLabel("Bodega")); panel.add(bodegas);
+            panel.add(new JLabel("Cantidad entera")); panel.add(cantidad); panel.add(new JLabel("Referencia")); panel.add(referencia);
+            if (Dialogos.showConfirmDialog(this, panel, "Entrada de inventario", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+            new gt.edu.umg.ventas.servicio.InventarioService().registrarEntrada(
+                    (gt.edu.umg.ventas.modelo.Producto) productos.getSelectedItem(), (Bodega) bodegas.getSelectedItem(),
+                    Integer.parseInt(cantidad.getText().trim()), referencia.getText().trim());
+            consultarInventario();
+            gt.edu.umg.ventas.util.CambiosVentas.notificar(this);
+        } catch (Exception e) { Dialogos.showMessageDialog(this, e.getMessage(), "Entrada no completada", JOptionPane.ERROR_MESSAGE); }
     }
 }

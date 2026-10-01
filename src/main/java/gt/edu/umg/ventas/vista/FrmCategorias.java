@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.CategoriaController;
 import gt.edu.umg.ventas.modelo.Categoria;
@@ -31,6 +32,10 @@ public class FrmCategorias extends JInternalFrame {
         JButton btnRefrescar = new JButton("🔄 Refrescar");
         btnRefrescar.addActionListener(e -> cargarCategorias());
         pnlNorte.add(btnRefrescar);
+        JButton nuevo = new JButton("Nueva"), editar = new JButton("Editar");
+        nuevo.addActionListener(e -> editarCategoria(false));
+        editar.addActionListener(e -> editarCategoria(true));
+        pnlNorte.add(nuevo); pnlNorte.add(editar);
         add(pnlNorte, BorderLayout.NORTH);
 
         String[] columnas = {"ID", "Nombre", "Descripción", "Activa"};
@@ -56,8 +61,16 @@ public class FrmCategorias extends JInternalFrame {
                 });
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error al cargar categorías: " + ex.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al cargar categorías: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+    private void editarCategoria(boolean editar) {
+        int fila = tblCategorias.getSelectedRow();
+        if (editar && fila < 0) { Dialogos.showMessageDialog(this, "Seleccione una categoría."); return; }
+        try {
+            long id = editar ? ((Number) modeloTabla.getValueAt(tblCategorias.convertRowIndexToModel(fila), 0)).longValue() : 0;
+            if (EditorCatalogo.categoria(this, id)) cargarCategorias();
+        } catch (Exception e) { Dialogos.showMessageDialog(this, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
     }
 }

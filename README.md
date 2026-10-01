@@ -1,139 +1,103 @@
-# Sistema de Facturación y Ventas - MVC + DAO
+# Sistema de Ventas de Programación II
 
-Sistema de facturación desarrollado en Java con interfaz gráfica Java Swing y persistencia en Microsoft SQL Server mediante JDBC. La solución implementa el diagrama de clases del sistema de facturación y aplica el patrón arquitectónico **MVC + DAO** con separación estricta en capas.
+Aplicación de escritorio en Java Swing y SQL Server para demostrar el proceso completo de ventas. El flujo es:
 
----
+Cliente → Orden de venta → Despacho pendiente → Despacho confirmado → Salida de inventario → Factura
 
-## 🏛️ Arquitectura del Sistema (MVC + DAO)
+La orden valida existencias, pero no las modifica. Al confirmar el despacho se rebajan las cantidades y se registra la salida dentro de la misma transacción. La factura es el documento comercial posterior y nunca modifica inventario.
 
-El flujo de control y responsabilidades se distribuye en capas unidireccionales:
+Generar el despacho guarda encabezado y detalles en estado PENDIENTE, con cero unidades despachadas, y no mueve ni reserva stock. Puede cerrarse la ventana y recuperarse el mismo despacho para confirmarlo después.
 
-$$\text{Vista} \longrightarrow \text{Controlador} \longrightarrow \text{Servicio} \longrightarrow \text{DAO} \longrightarrow \text{Base de Datos (SQL Server)}$$
+## Requisitos e instalación
 
-1. **Capa Vista (`gt.edu.umg.facturacion.vista`)**:
-   - `FrmContenedorPadre`: Entorno MDI principal con menús de Ventas y Catálogos.
-   - `PantallaFacturacion`: Formulario principal de facturación (`<<boundary>>`), implementa `solicitarEmision()` y `mostrarFactura(Factura)`.
-   - `FrmFacturaFiltro`: Cuadro de búsqueda para clientes y productos.
-   - Interfaz estilizada con tema oscuro moderno mediante **FlatLaf Dark**.
+- JDK 25 y Maven 3.9 o el Maven incluido en esta carpeta.
+- SQL Server con el servicio iniciado, conexión TCP a localhost:1433 y autenticación SQL configurada.
+- Una base limpia denominada SistemaVentas.
 
-2. **Capa Controlador (`gt.edu.umg.facturacion.controlador`)**:
-   - `FacturaController`: Orquesta la interacción entre `PantallaFacturacion` y `FacturaService`. Implementa `crear()`, `emitir()` y `consultar()`.
-   - `FacturaFiltroController`: Controla la búsqueda y selección dinámica de entidades.
-   - `ContenedorPadreController`: Gestiona la apertura y foco de los formularios MDI.
+En SQL Server Management Studio, ejecute `script_base_datos_ventas.sql`. El script instala tablas, relaciones, restricciones e índices y carga un usuario admin, un cliente CF y 24 productos ficticios de computación en seis categorías. Bodega Central incluye existencias iniciales de 6 a 40 unidades según el producto; TEC-001 empieza con 20.
 
-3. **Capa Servicio (`gt.edu.umg.facturacion.servicio`)**:
-   - `FacturaService`: Centraliza las reglas de negocio:
-     - Validación de cantidades estrictamente mayores a cero.
-     - Bloqueo de productos inactivos.
-     - Verificación de disponibilidad de stock en `Inventario`.
-     - Descuento automático de existencias al emitir la factura.
-     - Reposición automática de inventario al anular facturas emitidas o pagadas.
-     - Transición de estados (`BORRADOR` $\rightarrow$ `EMITIDA` $\rightarrow$ `PAGADA` / `ANULADA`).
+Si la base ya tiene el esquema actualizado, agregue el catálogo con `docs/cargar_catalogo_computacion.sql`, sin recrearla. Esta carga conserva ventas, precios y existencias anteriores y puede repetirse sin duplicar ni reponer stock. El detalle de productos y precios está en `docs/catalogo_computacion.md`.
 
-4. **Capa de Acceso a Datos - DAO (`gt.edu.umg.facturacion.dao`)**:
-   - `ConexionBD`: Centraliza la conexión JDBC con SQL Server, implementando `try-with-resources`.
-   - `FacturaDAO` / `FacturaDAOImpl`: Persistencia transaccional de facturas, líneas de detalle y pagos.
-   - `ClienteDAO` / `ClienteDAOImpl`: Operaciones sobre clientes.
-   - `ProductoDAO` / `ProductoDAOImpl`: Catálogo y actualización de inventario.
-   - `UsuarioDAO` / `UsuarioDAOImpl` y `CategoriaDAO` / `CategoriaDAOImpl`.
+Si instaló el esquema antes de separar generación y confirmación, ejecute una vez `docs/actualizar_despacho_pendiente.sql`. Actualiza únicamente la restricción de cantidades, sin borrar ventas, productos, stock ni despachos confirmados. Las instalaciones nuevas ya incluyen ese cambio.
 
-5. **Capa Modelo de Dominio (`gt.edu.umg.facturacion.modelo`)**:
-   - `Factura`, `DetalleFactura`, `Producto`, `Inventario`, `Cliente`, `Usuario`, `Pago`, `Categoria`.
-   - Enumeraciones: `EstadoFactura` (`BORRADOR`, `EMITIDA`, `PAGADA`, `ANULADA`) y `MetodoPago` (`EFECTIVO`, `TARJETA`, `TRANSFERENCIA`).
-   - Todos los cálculos monetarios y cantidades se manejan con **`BigDecimal`** (precisión exacta, sin pérdidas por coma flotante de `double`).
+Si conserva el esquema anterior y decidió recrear los datos de prueba, ejecute primero `docs/recrear_base_pruebas.sql`. Ese script borra exclusivamente la base SistemaVentas y sus datos; después debe ejecutar el instalador. El instalador no migra registros anteriores ni elimina automáticamente una base existente.
 
----
+Cree `src/main/resources/database.properties` a partir de su archivo de ejemplo y configure sus credenciales locales:
 
-## 🛠️ Tecnologías Utilizadas
+```properties
+db.url=jdbc:sqlserver://localhost:1433;databaseName=SistemaVentas;encrypt=false
+db.user=sa
+db.password=su_clave_local
+```
 
-- **Lenguaje**: Java 25 (OpenJDK / Oracle JDK 25 LTS).
-- **Gestor de Dependencias y Construcción**: Apache Maven 3.9+.
-- **Interfaz Gráfica**: Java Swing + [FlatLaf 3.4.1](https://www.formdev.com/flatlaf/).
-- **Base de Datos**: Microsoft SQL Server (Transact-SQL).
-- **Driver JDBC**: `com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11`.
-- **Framework de Pruebas**: JUnit 5 (Jupiter 5.10.2).
-- **IDE Recomendado**: Apache NetBeans 21+ / IntelliJ IDEA / VS Code.
+Este archivo está excluido de Git. La configuración se carga desde el classpath; no se usan contraseñas embebidas ni variables DB_HOST/DB_PASSWORD. Al cambiar el archivo, reinicie la aplicación. La sesión académica utiliza el usuario admin de la base; no implementa autenticación interactiva.
 
----
+## Compilación y ejecución
 
-## 📋 Requisitos Previos
+Desde la raíz, en PowerShell:
 
-1. **Java Development Kit (JDK 25)** instalado y configurado en la variable de entorno `JAVA_HOME`.
-2. **Apache Maven 3.9+** instalado.
-3. **Microsoft SQL Server** con:
-   - Protocolo **TCP/IP** habilitado en el puerto `1433` (SQL Server Configuration Manager).
-   - Modo de **Autenticación Mixta** (SQL Server and Windows Authentication).
+```powershell
+.\apache-maven-3.9.9\bin\mvn.cmd clean test
+.\apache-maven-3.9.9\bin\mvn.cmd exec:java
+```
 
----
+Si Maven resuelve una carpeta local incorrecta, indique la ubicación de sus dependencias:
 
-## 🗄️ Configuración de SQL Server
+```powershell
+.\apache-maven-3.9.9\bin\mvn.cmd '-Dmaven.repo.local=C:\Users\marlo\.m2\repository' test
+```
 
-1. Abra **SQL Server Management Studio (SSMS)** o Azure Data Studio.
-2. Ejecute el archivo [`script_base_datos.sql`](script_base_datos.sql) incluido en la raíz del proyecto.
-   - Crea la base de datos `FacturacionDB`.
-   - Crea las tablas con claves foráneas, restricciones `CHECK` y tipos `DECIMAL(12,2)`.
-   - Inserta datos semilla de prueba (categorías, inventarios, productos, clientes y usuarios).
-3. **Configuración de Credenciales**:
-   - Por defecto, `ConexionBD.java` se conecta a `127.0.0.1:1433`, base de datos `FacturacionDB`, usuario `sa` y contraseña `12345`.
-   - Puede sobreescribir las credenciales sin modificar el código definiendo variables de entorno:
-     ```powershell
-     $env:DB_HOST="localhost"
-     $env:DB_PORT="1433"
-     $env:DB_NAME="FacturacionDB"
-     $env:DB_USER="sa"
-     $env:DB_PASSWORD="TuPasswordSeguro"
-     ```
+NetBeans reconoce `pom.xml` y ejecuta `gt.edu.umg.ventas.SistemaVentas`. Los generadores Python históricos no forman parte del proceso de construcción; no los ejecute sobre los formularios implementados.
 
----
+## Uso
 
-## 🚀 Forma de Ejecutar
+1. Registre o seleccione un cliente en Catálogos. También puede crear y actualizar categorías y productos. Los catálogos de una nueva orden se recargan al activar su ventana.
+2. Consulte inventario por bodega. Para abastecer un producto nuevo, use Registrar entrada con una cantidad entera positiva y una referencia.
+3. En Ventas > Nueva Orden de Venta, seleccione productos activos y cantidades disponibles. Guardar confirma la solicitud y la deja PENDIENTE, lista para despacho. Se conserva el precio unitario de ese momento.
+4. En Inventario > Despachos, seleccione la orden y una bodega activa que disponga de todas las cantidades. Pulse Generar orden de despacho: se guarda PENDIENTE y el stock no cambia. Esta entrega admite un único despacho completo; no distribuye una orden entre varias bodegas. La bodega queda fijada al generarlo.
+5. Pulse Confirmar despacho. La orden pasa a COMPLETADA; el despacho pasa a CONFIRMADO, se actualizan sus cantidades entregadas y se rebaja stock con un movimiento SALIDA por producto. Si una línea falla, se revierte toda la confirmación y el despacho sigue PENDIENTE, disponible para reintentar después de abastecer.
+6. En Ventas > Facturación de órdenes despachadas, cargue una orden de la lista y emita el documento. Cliente, productos, cantidades y precios provienen de la orden y no son editables.
+7. En Ventas > Consultar Órdenes de Venta, busque por fechas y use Ver operación para comprobar productos, despacho, movimiento y factura. Las consultas abiertas se actualizan después de guardar operaciones.
 
-### Desde Línea de Comandos (Maven)
+Orden y factura usan cantidades enteras, BigDecimal, IVA académico de 12% y redondeo HALF_UP a dos decimales. El precio es el valor antes del IVA. No se ofrecen descuentos en este flujo. Los números OV, DSP y FAC utilizan UUID para evitar colisiones entre sesiones.
 
-1. **Compilar el proyecto:**
-   ```powershell
-   mvn clean compile
-   ```
+Existe una factura por orden, incluso si el documento se anula. Los pagos se admiten después de emitir; el estado pasa a PAGADA cuando cubren el total. Anular cancela solo el documento comercial y no representa devolución de mercadería.
 
-2. **Ejecutar pruebas unitarias:**
-   ```powershell
-   mvn test
-   ```
+## Arquitectura y persistencia
 
-3. **Iniciar la aplicación:**
-   ```powershell
-   mvn exec:java
-   ```
+Los paquetes están bajo `gt.edu.umg.ventas`:
 
-### Desde Apache NetBeans
+- `vista`: formularios Swing y representación de resultados.
+- `controlador`: coordinación de acciones de la interfaz.
+- `servicio`: reglas de órdenes, inventario, despacho y factura.
+- `dao`: consultas y persistencia JDBC.
+- `modelo`: entidades y proyecciones de consulta.
+- `util`: sesión, moneda y actualización de consultas abiertas.
 
-1. Abra NetBeans y seleccione **File $\rightarrow$ Open Project**.
-2. Seleccione la carpeta `proyecto-final-programacion-2` (NetBeans reconocerá el proyecto Maven de inmediato).
-3. Haga clic derecho en el proyecto y seleccione **Run** (o presione `F6`).
+Los servicios de inventario y despacho comparten una conexión JDBC durante la transacción. La factura bloquea la orden al persistir y comprueba otra vez que esté despachada y no tenga factura. Las restricciones UNIQUE de la base respaldan los controles contra operaciones duplicadas.
 
----
+ExistenciaInventario es la única fuente de stock físico por producto y bodega. La columna reservada está preparada para futuras reservas y permanece en cero en este alcance. MovimientoInventario registra entradas y salidas; las salidas referencian el número único del despacho. Los borradores de factura son temporales en memoria; las facturas emitidas, pagos y relaciones quedan en SQL Server y se recuperan al reiniciar.
 
-## 🔄 Flujo Principal del Sistema
+## Pruebas
 
-1. **Inicio**: Se abre el contenedor MDI principal y se despliega automáticamente la **Pantalla de Facturación** en estado `BORRADOR`.
-2. **Seleccionar o Crear Cliente**:
-   - Ingrese el NIT del cliente (o use el botón `🔍 Buscar` para abrir el filtro). Si no se ingresa, se asume *Consumidor Final (CF)*.
-3. **Seleccionar Producto e Indicar Cantidad**:
-   - Ingrese el código del producto (ej: `FER-001`) o haga clic en `🔍` para consultar el catálogo con stock disponible.
-   - Ingrese la cantidad deseada y el descuento (si aplica).
-4. **Agregar Producto a la Factura**:
-   - Haga clic en `➕ Agregar Producto`.
-   - El sistema valida disponibilidad de inventario y agrega la fila calculando subtotal, IVA (12%) y total en tiempo real con `BigDecimal`.
-5. **Emitir Factura**:
-   - Presione `🚀 Emitir Factura`. El sistema valida que existan detalles, descuenta las existencias del inventario en SQL Server, cambia el estado a `EMITIDA` y persiste el documento.
-6. **Registrar Pago**:
-   - Seleccione el método (`EFECTIVO`, `TARJETA`, `TRANSFERENCIA`), ingrese el monto y referencia, y presione `💳 Registrar Pago`. Al cubrir el total, el estado pasa a `PAGADA`.
-7. **Consultar y Anular Factura**:
-   - Puede consultar cualquier factura por su número correlativo (ej: `FAC-1001`) con `🔎 Consultar Factura`.
-   - El botón `❌ Anular Factura` cancela la factura y devuelve el stock al inventario automáticamente.
+`mvn test` ejecuta las pruebas unitarias y omite explícitamente las ocho pruebas de SQL Server. Para comprobar integración, primero instale el esquema y configure la conexión; después ejecute:
 
----
+```powershell
+.\apache-maven-3.9.9\bin\mvn.cmd '-Dventas.it=true' test
+```
 
-## 👥 Integrantes / Autor
+Con ventas.it=true, una base inaccesible hace fallar la suite; no se presenta como una integración exitosa con cero pruebas. Cada caso crea sus propios clientes, categorías, productos y bodegas y limpia únicamente esos datos al terminar.
 
-- **Marlon Porres** - Programación II, Universidad Mariano Gálvez de Guatemala.
+Los casos cubren persistencia hasta factura, consulta tras reinicio, precios históricos, stock insuficiente con rollback, despacho parcial y repetido, factura duplicada, error de FK al emitir y confirmaciones concurrentes.
+
+El ensayo Swing acciona los menús y botones reales con datos propios: cliente, inventario, orden, generación y recuperación del despacho pendiente, confirmación, factura, consulta de trazabilidad y recuperación con un controlador nuevo. Los diálogos reciben respuestas de prueba; la aplicación normal conserva JOptionPane. No es una certificación del dominio del grupo ni un ensayo manual humano.
+
+La demostración manual y las preguntas para preparar la defensa están en `docs/guion_entrega.md`. Las consultas de comprobación de solo lectura están en `docs/verificar_operacion.sql`.
+
+La guía individual, preguntas con respuestas y checklist de la rúbrica están en `docs/defensa_proyecto.md`.
+
+La verificación realizada, los resultados de integración y la ubicación del respaldo previo a la recreación están en `docs/verificacion_implementacion.md`.
+
+## Alcance de esta entrega
+
+Aplicación de escritorio, despachos completos y facturación posterior. Aplicación Android, API, reservas de stock, entregas parciales y devoluciones físicas quedan para una fase posterior.

@@ -11,6 +11,15 @@ public class OrdenVentaResumen {
     private BigDecimal total;
     private String estadoDespacho;
     private String nombreBodega;
+    private String numeroDespacho;
+    private String numeroFactura;
+    private String estadoFactura;
+    public String getNumeroDespacho() { return numeroDespacho; }
+    public void setNumeroDespacho(String valor) { numeroDespacho = valor; }
+    public String getNumeroFactura() { return numeroFactura; }
+    public void setNumeroFactura(String valor) { numeroFactura = valor; }
+    public String getEstadoFactura() { return estadoFactura; }
+    public void setEstadoFactura(String valor) { estadoFactura = valor; }
 
     // Getters and Setters
     public Integer getId() { return id; }

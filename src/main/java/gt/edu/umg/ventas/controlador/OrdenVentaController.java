@@ -13,7 +13,6 @@ import gt.edu.umg.ventas.servicio.OrdenVentaService;
 import gt.edu.umg.ventas.util.SesionUsuario;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class OrdenVentaController {
@@ -33,7 +32,12 @@ public class OrdenVentaController {
     }
 
     public List<Producto> obtenerProductosActivos() {
-        return productoDAO.listar();
+        return productoDAO.listar().stream().filter(Producto::isActivo).toList();
+    }
+
+    public int obtenerDisponible(Producto producto) {
+        return producto == null ? 0 : new gt.edu.umg.ventas.servicio.InventarioService()
+                .obtenerDisponibilidadTotal(producto.getIdProducto());
     }
 
     public OrdenVenta guardarOrden(Cliente cliente, List<DetalleOrdenVenta> detalles, String observaciones) {
@@ -46,7 +50,7 @@ public class OrdenVentaController {
 
         OrdenVenta orden = new OrdenVenta();
         // Generación de número correlativo académico con prefijo OV-
-        String correlativo = "OV-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyMMddHHmmss"));
+        String correlativo = "OV-" + java.util.UUID.randomUUID();
         orden.setNumeroOrden(correlativo);
         orden.setFecha(LocalDateTime.now());
         orden.setCliente(cliente);

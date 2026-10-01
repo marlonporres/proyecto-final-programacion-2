@@ -1,5 +1,6 @@
 package gt.edu.umg.ventas.modelo;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,15 +44,16 @@ public class OrdenVenta {
         calcularTotal();
     }
     public BigDecimal calcularSubtotal() {
-        return detalles.stream().map(DetalleOrdenVenta::getSubtotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return detalles.stream().map(DetalleOrdenVenta::getSubtotal).reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
     }
     public BigDecimal calcularImpuesto() {
         // Ejemplo: 12% IVA
-        return calcularSubtotal().multiply(new BigDecimal("0.12"));
+        return calcularSubtotal().multiply(new BigDecimal("0.12")).setScale(2, RoundingMode.HALF_UP);
     }
     public void calcularTotal() {
-        this.total = calcularSubtotal(); // Puede sumar impuesto si aplica
+        this.total = calcularSubtotal().add(calcularImpuesto()).setScale(2, RoundingMode.HALF_UP);
     }
-    public void confirmar() { this.estado = EstadoOrdenVenta.COMPLETADA; }
+    // COMPLETADA se asigna únicamente al confirmar el despacho transaccional.
     public void anular() { this.estado = EstadoOrdenVenta.CANCELADA; }
 }

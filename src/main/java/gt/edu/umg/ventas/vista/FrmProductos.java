@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.ProductoController;
 import gt.edu.umg.ventas.modelo.Producto;
@@ -47,6 +48,10 @@ public class FrmProductos extends JInternalFrame {
             cargarProductos("");
         });
         pnlNorte.add(btnRefrescar);
+        JButton nuevo = new JButton("Nuevo"), editar = new JButton("Editar");
+        nuevo.addActionListener(e -> editarProducto(false));
+        editar.addActionListener(e -> editarProducto(true));
+        pnlNorte.add(nuevo); pnlNorte.add(editar);
 
         add(pnlNorte, BorderLayout.NORTH);
 
@@ -84,8 +89,16 @@ public class FrmProductos extends JInternalFrame {
                 });
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error al cargar productos desde SQL Server: " + ex.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al cargar productos desde SQL Server: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+    private void editarProducto(boolean editar) {
+        int fila = tblProductos.getSelectedRow();
+        if (editar && fila < 0) { Dialogos.showMessageDialog(this, "Seleccione un producto."); return; }
+        try {
+            long id = editar ? ((Number) modeloTabla.getValueAt(tblProductos.convertRowIndexToModel(fila), 0)).longValue() : 0;
+            if (EditorCatalogo.producto(this, id)) cargarProductos(txtBuscar.getText());
+        } catch (Exception e) { Dialogos.showMessageDialog(this, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
     }
 }

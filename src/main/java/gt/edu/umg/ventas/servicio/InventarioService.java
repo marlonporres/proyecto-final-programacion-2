@@ -24,7 +24,8 @@ public class InventarioService {
 
     public ExistenciaInventario consultarExistencia(Producto producto, Bodega bodega, Connection conn) {
         String sql = "SELECT id, id_producto, id_bodega, existencia_actual, existencia_reservada "
-                + "FROM dbo.ExistenciaInventario WHERE id_producto = ? AND id_bodega = ?";
+                + "FROM dbo.ExistenciaInventario " + (conn != null ? "WITH (UPDLOCK, HOLDLOCK) " : "")
+                + "WHERE id_producto = ? AND id_bodega = ?";
         boolean localConn = false;
         try {
             if (conn == null) {
@@ -69,6 +70,10 @@ public class InventarioService {
     }
 
     public void registrarEntrada(Producto producto, Bodega bodega, int cantidad, String referencia) throws Exception {
+        if (producto == null || bodega == null || !producto.isActivo() || !bodega.isActiva()
+                || referencia == null || referencia.isBlank()) {
+            throw new IllegalArgumentException("Seleccione producto y bodega activos e indique una referencia.");
+        }
         if (cantidad <= 0) {
             throw new IllegalArgumentException("La cantidad debe ser mayor a cero.");
         }
@@ -120,15 +125,12 @@ public class InventarioService {
             throw new IllegalArgumentException("La cantidad debe ser mayor a cero.");
         }
 
-        ExistenciaInventario ex = consultarExistencia(producto, bodega, conn);
-        int disp = (ex != null) ? ex.getExistenciaDisponible() : 0;
-        if (ex == null || disp < cantidad) {
-            throw new Exception("Stock insuficiente en bodega '" + bodega.getNombre() 
-                    + "' para el producto '" + producto.getNombre() 
-                    + "'. Disponible: " + disp + ", Solicitado: " + cantidad);
+        if (producto == null || bodega == null) {
+            throw new IllegalArgumentException("Producto y bodega son obligatorios.");
         }
-
-        String updateExistencia = "UPDATE dbo.ExistenciaInventario SET existencia_actual = existencia_actual - ? WHERE id_producto = ? AND id_bodega = ?";
+        String updateExistencia = "UPDATE dbo.ExistenciaInventario SET existencia_actual = existencia_actual - ? "
+                + "WHERE id_producto = ? AND id_bodega = ? AND existencia_actual - existencia_reservada >= ? "
+                + "AND EXISTS (SELECT 1 FROM dbo.Bodega WHERE id = id_bodega AND activa = 1)";
         String insertMovimiento = "INSERT INTO dbo.MovimientoInventario (id_producto, id_bodega, tipo_movimiento, cantidad, fecha, referencia) VALUES (?, ?, ?, ?, ?, ?)";
 
         boolean localConn = false;
@@ -143,7 +145,10 @@ public class InventarioService {
                 stmt.setInt(1, cantidad);
                 stmt.setLong(2, producto.getIdProducto());
                 stmt.setInt(3, bodega.getId());
-                stmt.executeUpdate();
+                stmt.setInt(4, cantidad);
+                if (stmt.executeUpdate() != 1) {
+                    throw new IllegalStateException("Stock insuficiente o bodega inactiva para " + producto.getNombre());
+                }
             }
 
             try (PreparedStatement stmt = conn.prepareStatement(insertMovimiento)) {
@@ -230,7 +235,7 @@ public class InventarioService {
                 }
             }
         } catch (SQLException e) {
-            System.err.println("Error al obtener disponibilidad total: " + e.getMessage());
+            throw new IllegalStateException("No se pudo consultar la disponibilidad de inventario.", e);
         }
         return 0;
     }

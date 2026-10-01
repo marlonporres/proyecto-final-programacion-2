@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.OrdenVentaController;
 import gt.edu.umg.ventas.modelo.Cliente;
@@ -29,6 +30,7 @@ public class FrmOrdenVenta extends JInternalFrame {
     private JLabel lblSubtotalValor;
     private JLabel lblImpuestoValor;
     private JLabel lblTotalValor;
+    private JLabel lblDisponible = new JLabel("Disponible: -");
 
     public FrmOrdenVenta() {
         super("Nueva Orden de Venta", true, true, true, true);
@@ -39,6 +41,9 @@ public class FrmOrdenVenta extends JInternalFrame {
         setMinimumSize(new Dimension(750, 480));
         initComponents();
         cargarCatalogos();
+        addInternalFrameListener(new javax.swing.event.InternalFrameAdapter() {
+            @Override public void internalFrameActivated(javax.swing.event.InternalFrameEvent e) { cargarCatalogos(); }
+        });
     }
 
     private void initComponents() {
@@ -64,6 +69,7 @@ public class FrmOrdenVenta extends JInternalFrame {
         pnlNorte.add(new JLabel("Producto:"), gbc);
         gbc.gridx = 1; gbc.gridy = 1; gbc.weightx = 0.6;
         cmbProducto = new JComboBox<>();
+        cmbProducto.addActionListener(e -> actualizarDisponible());
         pnlNorte.add(cmbProducto, gbc);
 
         gbc.gridx = 2; gbc.gridy = 1; gbc.weightx = 0.0;
@@ -76,6 +82,9 @@ public class FrmOrdenVenta extends JInternalFrame {
         JButton btnAgregar = new JButton("➕ Agregar Detalle");
         btnAgregar.addActionListener(e -> agregarDetalle());
         pnlNorte.add(btnAgregar, gbc);
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 5;
+        pnlNorte.add(lblDisponible, gbc);
+        gbc.gridwidth = 1;
 
         // Fila 2: Observaciones
         gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0.0;
@@ -136,7 +145,7 @@ public class FrmOrdenVenta extends JInternalFrame {
         pnlTotales.add(lblTotalValor, gbcT);
 
         gbcT.gridx = 0; gbcT.gridy = 3; gbcT.gridwidth = 2;
-        JButton btnGuardar = new JButton("💾 Guardar Orden");
+        JButton btnGuardar = new JButton("💾 Confirmar / Guardar Orden");
         btnGuardar.setFont(btnGuardar.getFont().deriveFont(Font.BOLD, 13f));
         btnGuardar.addActionListener(e -> guardarOrden());
         pnlTotales.add(btnGuardar, gbcT);
@@ -147,19 +156,23 @@ public class FrmOrdenVenta extends JInternalFrame {
 
     private void cargarCatalogos() {
         try {
+            Cliente anteriorCliente = (Cliente) cmbCliente.getSelectedItem();
+            Producto anteriorProducto = (Producto) cmbProducto.getSelectedItem();
             cmbCliente.removeAllItems();
             List<Cliente> clientes = controller.obtenerClientes();
             for (Cliente c : clientes) {
                 cmbCliente.addItem(c);
+                if (anteriorCliente != null && anteriorCliente.getIdCliente() == c.getIdCliente()) cmbCliente.setSelectedItem(c);
             }
 
             cmbProducto.removeAllItems();
             List<Producto> productos = controller.obtenerProductosActivos();
             for (Producto p : productos) {
                 cmbProducto.addItem(p);
+                if (anteriorProducto != null && anteriorProducto.getIdProducto() == p.getIdProducto()) cmbProducto.setSelectedItem(p);
             }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Error al cargar catálogos desde la base de datos: " + e.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al cargar catálogos desde la base de datos: " + e.getMessage(),
                     "Error de Carga", JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -167,7 +180,7 @@ public class FrmOrdenVenta extends JInternalFrame {
     private void agregarDetalle() {
         Producto prod = (Producto) cmbProducto.getSelectedItem();
         if (prod == null) {
-            JOptionPane.showMessageDialog(this, "Seleccione un producto.", "Validación", JOptionPane.WARNING_MESSAGE);
+            Dialogos.showMessageDialog(this, "Seleccione un producto.", "Validación", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -178,15 +191,24 @@ public class FrmOrdenVenta extends JInternalFrame {
                 throw new NumberFormatException();
             }
         } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this, "La cantidad debe ser un número entero mayor a cero.",
+            Dialogos.showMessageDialog(this, "La cantidad debe ser un número entero mayor a cero.",
                     "Validación", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        try {
+            if (!prod.isActivo() || controller.obtenerDisponible(prod) < cantidad) {
+                Dialogos.showMessageDialog(this, "Producto inactivo o stock insuficiente.");
+                return;
+            }
+        } catch (Exception e) {
+            Dialogos.showMessageDialog(this, e.getMessage(), "No se pudo consultar stock", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         // Validar si el producto ya está en los detalles agregados
         for (DetalleOrdenVenta d : listaDetalles) {
             if (d.getProducto().getIdProducto() == prod.getIdProducto()) {
-                JOptionPane.showMessageDialog(this, "El producto ya se encuentra en la orden. Modifique la línea existente si desea cambiar la cantidad.",
+                Dialogos.showMessageDialog(this, "El producto ya se encuentra en la orden. Modifique la línea existente si desea cambiar la cantidad.",
                         "Producto Repetido", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
@@ -221,7 +243,7 @@ public class FrmOrdenVenta extends JInternalFrame {
             modeloTabla.removeRow(fila);
             recalcularTotales();
         } else {
-            JOptionPane.showMessageDialog(this, "Seleccione una fila para quitar.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
+            Dialogos.showMessageDialog(this, "Seleccione una fila para quitar.", "Aviso", JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
@@ -241,22 +263,23 @@ public class FrmOrdenVenta extends JInternalFrame {
     private void guardarOrden() {
         Cliente cliente = (Cliente) cmbCliente.getSelectedItem();
         if (cliente == null) {
-            JOptionPane.showMessageDialog(this, "Seleccione un cliente.", "Validación", JOptionPane.WARNING_MESSAGE);
+            Dialogos.showMessageDialog(this, "Seleccione un cliente.", "Validación", JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (listaDetalles.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Agregue al menos un producto a la orden.", "Validación", JOptionPane.WARNING_MESSAGE);
+            Dialogos.showMessageDialog(this, "Agregue al menos un producto a la orden.", "Validación", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         try {
             OrdenVenta ordenGuardada = controller.guardarOrden(cliente, listaDetalles, txtObservaciones.getText().trim());
-            JOptionPane.showMessageDialog(this,
-                    "Orden " + ordenGuardada.getNumeroOrden() + " creada correctamente\nID de Orden: " + ordenGuardada.getId(),
+            Dialogos.showMessageDialog(this,
+                    "Orden " + ordenGuardada.getNumeroOrden() + " confirmada y guardada.\nPendiente de generar y confirmar despacho.\nID de Orden: " + ordenGuardada.getId(),
                     "Orden de Venta Guardada", JOptionPane.INFORMATION_MESSAGE);
             limpiarFormulario();
+            gt.edu.umg.ventas.util.CambiosVentas.notificar(this);
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error al guardar orden: " + ex.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al guardar orden: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -267,5 +290,11 @@ public class FrmOrdenVenta extends JInternalFrame {
         txtObservaciones.setText("");
         txtCantidad.setText("1");
         recalcularTotales();
+    }
+
+    private void actualizarDisponible() {
+        try {
+            lblDisponible.setText("Disponible en bodegas activas: " + controller.obtenerDisponible((Producto) cmbProducto.getSelectedItem()));
+        } catch (Exception e) { lblDisponible.setText("Disponibilidad no disponible"); }
     }
 }

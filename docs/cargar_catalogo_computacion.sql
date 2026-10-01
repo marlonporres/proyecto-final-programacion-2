@@ -1,117 +1,9 @@
--- Instalación limpia del Sistema de Ventas. No elimina una base existente.
--- Para recrear datos de prueba, ejecute primero docs/recrear_base_pruebas.sql.
-IF DB_ID(N'SistemaVentas') IS NULL CREATE DATABASE SistemaVentas;
-GO
+-- Carga aditiva e idempotente. No borra ventas ni reinicia existencias.
+-- Ejecutar sobre el esquema actualizado de SistemaVentas.
 USE SistemaVentas;
-GO
-IF OBJECT_ID('dbo.OrdenVenta', 'U') IS NOT NULL
-    THROW 50001, 'La base ya contiene tablas. Use una instalación limpia; este script no migra datos.', 1;
 SET XACT_ABORT ON;
-BEGIN TRANSACTION;
-
-CREATE TABLE dbo.usuario (
-    id_usuario BIGINT IDENTITY PRIMARY KEY, nombre NVARCHAR(150) NOT NULL,
-    nombre_usuario VARCHAR(50) NOT NULL UNIQUE, rol VARCHAR(50) NOT NULL,
-    activo BIT NOT NULL DEFAULT 1
-);
-CREATE TABLE dbo.cliente (
-    id_cliente BIGINT IDENTITY PRIMARY KEY, nit VARCHAR(20) NOT NULL UNIQUE,
-    nombre NVARCHAR(150) NOT NULL, direccion NVARCHAR(255), telefono VARCHAR(20), correo VARCHAR(100)
-);
-CREATE TABLE dbo.categoria (
-    id_categoria BIGINT IDENTITY PRIMARY KEY, nombre NVARCHAR(100) NOT NULL UNIQUE,
-    descripcion NVARCHAR(255), activa BIT NOT NULL DEFAULT 1
-);
-CREATE TABLE dbo.producto (
-    id_producto BIGINT IDENTITY PRIMARY KEY, codigo VARCHAR(50) NOT NULL UNIQUE,
-    nombre NVARCHAR(150) NOT NULL, descripcion NVARCHAR(255),
-    precio_venta DECIMAL(18,2) NOT NULL CHECK (precio_venta >= 0),
-    activo BIT NOT NULL DEFAULT 1, categoria_id BIGINT NOT NULL REFERENCES dbo.categoria(id_categoria)
-);
-CREATE TABLE dbo.Bodega (
-    id INT IDENTITY PRIMARY KEY, nombre NVARCHAR(100) NOT NULL UNIQUE,
-    ubicacion NVARCHAR(200), activa BIT NOT NULL DEFAULT 1
-);
-CREATE TABLE dbo.ExistenciaInventario (
-    id INT IDENTITY PRIMARY KEY,
-    id_producto BIGINT NOT NULL REFERENCES dbo.producto(id_producto),
-    id_bodega INT NOT NULL REFERENCES dbo.Bodega(id),
-    existencia_actual INT NOT NULL DEFAULT 0 CHECK (existencia_actual >= 0),
-    existencia_reservada INT NOT NULL DEFAULT 0 CHECK (existencia_reservada >= 0),
-    CONSTRAINT UQ_existencia UNIQUE (id_producto, id_bodega),
-    CONSTRAINT CK_reserva CHECK (existencia_reservada <= existencia_actual)
-);
-CREATE TABLE dbo.OrdenVenta (
-    id INT IDENTITY PRIMARY KEY, numero_orden VARCHAR(50) NOT NULL UNIQUE, fecha DATETIME2 NOT NULL,
-    id_cliente BIGINT NOT NULL REFERENCES dbo.cliente(id_cliente),
-    id_usuario BIGINT NOT NULL REFERENCES dbo.usuario(id_usuario),
-    total DECIMAL(18,2) NOT NULL CHECK (total >= 0),
-    estado VARCHAR(20) NOT NULL CHECK (estado IN ('PENDIENTE', 'COMPLETADA', 'CANCELADA')),
-    observaciones NVARCHAR(500)
-);
-CREATE TABLE dbo.DetalleOrdenVenta (
-    id INT IDENTITY PRIMARY KEY, id_orden INT NOT NULL REFERENCES dbo.OrdenVenta(id),
-    id_producto BIGINT NOT NULL REFERENCES dbo.producto(id_producto),
-    cantidad INT NOT NULL CHECK (cantidad > 0),
-    precio_unitario DECIMAL(18,2) NOT NULL CHECK (precio_unitario >= 0),
-    subtotal DECIMAL(18,2) NOT NULL CHECK (subtotal >= 0),
-    CONSTRAINT UQ_detalle_orden UNIQUE (id_orden, id_producto)
-);
-CREATE TABLE dbo.Despacho (
-    id INT IDENTITY PRIMARY KEY, numero_despacho VARCHAR(50) NOT NULL UNIQUE,
-    id_orden INT NOT NULL UNIQUE REFERENCES dbo.OrdenVenta(id),
-    id_bodega INT NOT NULL REFERENCES dbo.Bodega(id), fecha_despacho DATETIME2 NOT NULL,
-    estado VARCHAR(20) NOT NULL CHECK (estado IN ('PENDIENTE', 'CONFIRMADO', 'ANULADO'))
-);
-CREATE TABLE dbo.DetalleDespacho (
-    id INT IDENTITY PRIMARY KEY, id_despacho INT NOT NULL REFERENCES dbo.Despacho(id),
-    id_producto BIGINT NOT NULL REFERENCES dbo.producto(id_producto),
-    cantidad_solicitada INT NOT NULL CHECK (cantidad_solicitada > 0),
-    cantidad_despachada INT NOT NULL,
-    CONSTRAINT CK_despacho_completo CHECK (cantidad_despachada = 0 OR cantidad_despachada = cantidad_solicitada),
-    CONSTRAINT UQ_detalle_despacho UNIQUE (id_despacho, id_producto)
-);
-CREATE TABLE dbo.MovimientoInventario (
-    id INT IDENTITY PRIMARY KEY, id_producto BIGINT NOT NULL REFERENCES dbo.producto(id_producto),
-    id_bodega INT NOT NULL REFERENCES dbo.Bodega(id),
-    tipo_movimiento VARCHAR(20) NOT NULL CHECK (tipo_movimiento IN ('ENTRADA', 'SALIDA', 'AJUSTE', 'RESERVA', 'LIBERACION')),
-    cantidad INT NOT NULL CHECK (cantidad > 0), fecha DATETIME2 NOT NULL, referencia NVARCHAR(100) NOT NULL
-);
-CREATE TABLE dbo.factura (
-    id_factura BIGINT IDENTITY PRIMARY KEY, numero VARCHAR(50) NOT NULL UNIQUE,
-    fecha_hora DATETIME2 NOT NULL, estado VARCHAR(20) NOT NULL CHECK (estado IN ('EMITIDA', 'PAGADA', 'ANULADA')),
-    observaciones NVARCHAR(500), cliente_id BIGINT NOT NULL REFERENCES dbo.cliente(id_cliente),
-    usuario_id BIGINT NOT NULL REFERENCES dbo.usuario(id_usuario),
-    id_orden INT NOT NULL UNIQUE REFERENCES dbo.OrdenVenta(id),
-    total DECIMAL(18,2) NOT NULL CHECK (total >= 0)
-);
-CREATE TABLE dbo.detalle_factura (
-    id_detalle BIGINT IDENTITY PRIMARY KEY, factura_id BIGINT NOT NULL REFERENCES dbo.factura(id_factura),
-    producto_id BIGINT NOT NULL REFERENCES dbo.producto(id_producto),
-    cantidad DECIMAL(12,2) NOT NULL CHECK (cantidad > 0 AND cantidad = FLOOR(cantidad)),
-    precio_unitario DECIMAL(18,2) NOT NULL CHECK (precio_unitario >= 0),
-    porcentaje_impuesto DECIMAL(5,2) NOT NULL DEFAULT 12 CHECK (porcentaje_impuesto = 12),
-    descuento DECIMAL(18,2) NOT NULL DEFAULT 0 CHECK (descuento = 0),
-    subtotal DECIMAL(18,2) NOT NULL CHECK (subtotal >= 0),
-    CONSTRAINT UQ_detalle_factura UNIQUE (factura_id, producto_id)
-);
-CREATE TABLE dbo.pago (
-    id_pago BIGINT IDENTITY PRIMARY KEY, factura_id BIGINT NOT NULL REFERENCES dbo.factura(id_factura),
-    fecha_hora DATETIME2 NOT NULL, monto DECIMAL(18,2) NOT NULL CHECK (monto > 0),
-    metodo VARCHAR(30) NOT NULL CHECK (metodo IN ('EFECTIVO', 'TARJETA', 'TRANSFERENCIA')),
-    referencia NVARCHAR(100)
-);
-CREATE INDEX IX_orden_fecha_estado ON dbo.OrdenVenta(fecha, estado);
-CREATE INDEX IX_orden_cliente ON dbo.OrdenVenta(id_cliente);
-CREATE INDEX IX_orden_usuario ON dbo.OrdenVenta(id_usuario);
-CREATE INDEX IX_existencia_bodega ON dbo.ExistenciaInventario(id_bodega);
-CREATE INDEX IX_despacho_bodega ON dbo.Despacho(id_bodega);
-CREATE INDEX IX_movimiento_producto_bodega ON dbo.MovimientoInventario(id_producto, id_bodega, referencia);
-CREATE INDEX IX_pago_factura ON dbo.pago(factura_id);
-CREATE INDEX IX_producto_categoria ON dbo.producto(categoria_id);
-
-INSERT dbo.usuario (nombre, nombre_usuario, rol) VALUES (N'Administrador', 'admin', 'ADMINISTRADOR');
-INSERT dbo.cliente (nit, nombre, direccion) VALUES ('CF', N'Consumidor Final', N'Guatemala');
+BEGIN TRY
+    BEGIN TRANSACTION;
 -- INICIO CATALOGO COMPUTACION
 DECLARE @bloqueo INT;
 EXEC @bloqueo = sys.sp_getapplock @Resource=N'CatalogoComputacionDemo',
@@ -200,6 +92,9 @@ SELECT p.id_producto, @id_bodega, 'ENTRADA', s.unidades, SYSDATETIME(), N'Carga 
 FROM @productos_nuevos n JOIN dbo.producto p ON p.id_producto=n.id_producto
 JOIN @catalogo s ON s.codigo=p.codigo;
 -- FIN CATALOGO COMPUTACION
-COMMIT;
-PRINT 'SistemaVentas instalado con 24 productos de computación y existencias de demostración.';
-GO
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    THROW;
+END CATCH;

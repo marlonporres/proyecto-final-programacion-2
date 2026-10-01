@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.BodegaController;
 import gt.edu.umg.ventas.modelo.Bodega;
@@ -43,7 +44,9 @@ public class FrmBodegas extends JInternalFrame {
         
         add(pnlNorte, BorderLayout.NORTH);
         
-        modelo = new DefaultTableModel(new String[]{"ID", "Nombre", "Ubicacion", "Activa"}, 0);
+        modelo = new DefaultTableModel(new String[]{"ID", "Nombre", "Ubicacion", "Activa"}, 0) {
+            @Override public boolean isCellEditable(int fila, int columna) { return false; }
+        };
         tabla = new JTable(modelo);
         add(new JScrollPane(tabla), BorderLayout.CENTER);
         
@@ -51,17 +54,17 @@ public class FrmBodegas extends JInternalFrame {
     }
     
     private void guardar() {
-        controller.crear(txtNombre.getText(), txtUbicacion.getText(), chkActiva.isSelected());
-        txtNombre.setText("");
-        txtUbicacion.setText("");
-        cargarDatos();
+        try {
+            controller.crear(txtNombre.getText(), txtUbicacion.getText(), chkActiva.isSelected());
+            txtNombre.setText(""); txtUbicacion.setText(""); cargarDatos();
+            gt.edu.umg.ventas.util.CambiosVentas.notificar(this);
+        } catch (Exception e) { Dialogos.showMessageDialog(this, e.getMessage(), "Bodega no guardada", JOptionPane.ERROR_MESSAGE); }
     }
     
     private void cargarDatos() {
-        modelo.setRowCount(0);
-        List<Bodega> lista = controller.listar();
-        for (Bodega b : lista) {
-            modelo.addRow(new Object[]{b.getId(), b.getNombre(), b.getUbicacion(), b.isActiva()});
-        }
+        try {
+            List<Bodega> lista = controller.listar(); modelo.setRowCount(0);
+            for (Bodega b : lista) modelo.addRow(new Object[]{b.getId(), b.getNombre(), b.getUbicacion(), b.isActiva()});
+        } catch (Exception e) { Dialogos.showMessageDialog(this, e.getMessage(), "Error de consulta", JOptionPane.ERROR_MESSAGE); }
     }
 }

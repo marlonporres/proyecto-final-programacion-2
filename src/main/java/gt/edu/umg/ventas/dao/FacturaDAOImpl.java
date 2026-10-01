@@ -1,397 +1,242 @@
 package gt.edu.umg.ventas.dao;
 
-import gt.edu.umg.ventas.modelo.Categoria;
-import gt.edu.umg.ventas.modelo.Cliente;
-import gt.edu.umg.ventas.modelo.DetalleFactura;
-import gt.edu.umg.ventas.modelo.EstadoFactura;
-import gt.edu.umg.ventas.modelo.Factura;
-import gt.edu.umg.ventas.modelo.MetodoPago;
-import gt.edu.umg.ventas.modelo.Pago;
-import gt.edu.umg.ventas.modelo.Producto;
-import gt.edu.umg.ventas.modelo.Usuario;
+import gt.edu.umg.ventas.modelo.*;
+import java.sql.*;
+import java.util.*;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Timestamp;
-import java.sql.Types;
-import java.util.ArrayList;
-import java.util.List;
-
-/**
- * Implementación JDBC de FacturaDAO con soporte para transacciones y SQL Server.
- */
+/** Persistencia de facturas inmutables y pagos, con confirmación transaccional. */
 public class FacturaDAOImpl implements FacturaDAO {
-
-    private final ConexionBD conexion;
-
-    public FacturaDAOImpl() {
-        this.conexion = new ConexionBD();
-    }
-
-    public FacturaDAOImpl(ConexionBD conexion) {
-        this.conexion = conexion != null ? conexion : new ConexionBD();
-    }
+    private static final String SELECT = "SELECT f.*, o.numero_orden, o.estado AS estado_orden, "
+            + "c.nit, c.nombre AS cliente_nombre, c.direccion, c.telefono, c.correo, "
+            + "u.nombre AS usuario_nombre, u.nombre_usuario, u.rol, u.activo "
+            + "FROM dbo.factura f JOIN dbo.OrdenVenta o ON o.id = f.id_orden "
+            + "JOIN dbo.cliente c ON c.id_cliente = f.cliente_id "
+            + "JOIN dbo.usuario u ON u.id_usuario = f.usuario_id ";
 
     @Override
-    public void guardar(Factura factura) {
-        if (factura == null) {
-            throw new IllegalArgumentException("La factura a guardar no puede ser nula.");
+    public void guardar(Factura f) {
+        if (f == null || f.getOrden() == null || f.getOrden().getId() == null
+                || f.getUsuario() == null || f.getCliente() == null || f.getDetalles().isEmpty()) {
+            throw new IllegalArgumentException("La factura debe tener orden, usuario, cliente y detalles.");
         }
-
-        String sqlFactura = "INSERT INTO dbo.factura (numero, fecha_hora, estado, observaciones, cliente_id, usuario_id) "
-                + "VALUES (?, ?, ?, ?, ?, ?)";
-        String sqlDetalle = "INSERT INTO dbo.detalle_factura (factura_id, producto_id, cantidad, precio_unitario, "
-                + "porcentaje_impuesto, descuento, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)";
-        String sqlPago = "INSERT INTO dbo.pago (factura_id, fecha_hora, monto, metodo, referencia) "
-                + "VALUES (?, ?, ?, ?, ?)";
-
-        Connection con = null;
-        try {
-            con = conexion.obtenerConexion();
+        long idAnterior = f.getIdFactura();
+        try (Connection con = ConexionBD.obtenerConexion()) {
             con.setAutoCommit(false);
-
-            // 1. Guardar encabezado de la factura
-            try (PreparedStatement psF = con.prepareStatement(sqlFactura, Statement.RETURN_GENERATED_KEYS)) {
-                psF.setString(1, factura.getNumero());
-                psF.setTimestamp(2, Timestamp.valueOf(factura.getFechaHora()));
-                psF.setString(3, factura.getEstado().name());
-                psF.setString(4, factura.getObservaciones());
-
-                if (factura.getCliente() != null && factura.getCliente().getIdCliente() > 0) {
-                    psF.setLong(5, factura.getCliente().getIdCliente());
-                } else {
-                    psF.setNull(5, Types.BIGINT);
-                }
-
-                if (factura.getUsuario() != null && factura.getUsuario().getIdUsuario() > 0) {
-                    psF.setLong(6, factura.getUsuario().getIdUsuario());
-                } else {
-                    psF.setLong(6, 1L); // Usuario por defecto (admin) si no viene seteado
-                }
-
-                psF.executeUpdate();
-
-                try (ResultSet rs = psF.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        factura.setIdFactura(rs.getLong(1));
+            try {
+                try (PreparedStatement ps = con.prepareStatement(
+                        "SELECT o.total, o.id_cliente FROM dbo.OrdenVenta o WITH (UPDLOCK, HOLDLOCK) "
+                        + "WHERE o.id = ? AND o.estado = 'COMPLETADA' "
+                        + "AND EXISTS (SELECT 1 FROM dbo.Despacho d WHERE d.id_orden = o.id AND d.estado = 'CONFIRMADO') "
+                        + "AND NOT EXISTS (SELECT 1 FROM dbo.factura f WHERE f.id_orden = o.id)")) {
+                    ps.setInt(1, f.getOrden().getId());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) throw new IllegalStateException("La orden no es facturable o ya tiene factura.");
+                        if (rs.getBigDecimal("total").compareTo(f.calcularTotal()) != 0
+                                || rs.getLong("id_cliente") != f.getCliente().getIdCliente()) {
+                            throw new IllegalStateException("La factura no coincide con la orden.");
+                        }
                     }
                 }
-            }
-
-            // 2. Guardar líneas de detalle
-            if (!factura.getDetalles().isEmpty()) {
-                try (PreparedStatement psD = con.prepareStatement(sqlDetalle, Statement.RETURN_GENERATED_KEYS)) {
-                    for (DetalleFactura det : factura.getDetalles()) {
-                        psD.setLong(1, factura.getIdFactura());
-                        psD.setLong(2, det.getProducto().getIdProducto());
-                        psD.setBigDecimal(3, det.getCantidad());
-                        psD.setBigDecimal(4, det.getPrecioUnitario());
-                        psD.setBigDecimal(5, det.getPorcentajeImpuesto());
-                        psD.setBigDecimal(6, det.getDescuento());
-                        psD.setBigDecimal(7, det.calcularSubtotal());
-                        psD.addBatch();
+                validarDetalles(con, f);
+                try (PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO dbo.factura (numero, fecha_hora, estado, observaciones, cliente_id, usuario_id, id_orden, total) "
+                        + "VALUES (?, ?, 'EMITIDA', ?, ?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS)) {
+                    ps.setString(1, f.getNumero());
+                    ps.setTimestamp(2, Timestamp.valueOf(f.getFechaHora()));
+                    ps.setString(3, f.getObservaciones());
+                    ps.setLong(4, f.getCliente().getIdCliente());
+                    ps.setLong(5, f.getUsuario().getIdUsuario());
+                    ps.setInt(6, f.getOrden().getId());
+                    ps.setBigDecimal(7, f.calcularTotal());
+                    ps.executeUpdate();
+                    try (ResultSet rs = ps.getGeneratedKeys()) {
+                        if (!rs.next()) throw new SQLException("No se obtuvo el ID de factura.");
+                        f.setIdFactura(rs.getLong(1));
                     }
-                    psD.executeBatch();
                 }
-            }
-
-            // 3. Guardar pagos asociados
-            if (!factura.getPagos().isEmpty()) {
-                try (PreparedStatement psP = con.prepareStatement(sqlPago, Statement.RETURN_GENERATED_KEYS)) {
-                    for (Pago p : factura.getPagos()) {
-                        psP.setLong(1, factura.getIdFactura());
-                        psP.setTimestamp(2, Timestamp.valueOf(p.getFechaHora()));
-                        psP.setBigDecimal(3, p.getMonto());
-                        psP.setString(4, p.getMetodo().name());
-                        psP.setString(5, p.getReferencia());
-                        psP.addBatch();
+                try (PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO dbo.detalle_factura (factura_id, producto_id, cantidad, precio_unitario, porcentaje_impuesto, descuento, subtotal) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                    for (DetalleFactura d : f.getDetalles()) {
+                        ps.setLong(1, f.getIdFactura());
+                        ps.setLong(2, d.getProducto().getIdProducto());
+                        ps.setBigDecimal(3, d.getCantidad());
+                        ps.setBigDecimal(4, d.getPrecioUnitario());
+                        ps.setBigDecimal(5, d.getPorcentajeImpuesto());
+                        ps.setBigDecimal(6, d.getDescuento());
+                        ps.setBigDecimal(7, d.calcularSubtotal());
+                        ps.addBatch();
                     }
-                    psP.executeBatch();
+                    ps.executeBatch();
                 }
+                con.commit();
+                f.setEstado(EstadoFactura.EMITIDA);
+            } catch (Exception e) {
+                con.rollback();
+                f.setIdFactura(idAnterior);
+                throw new IllegalStateException("No se pudo guardar la factura: " + e.getMessage(), e);
             }
-
-            con.commit();
-        } catch (SQLException e) {
-            if (con != null) {
-                try {
-                    con.rollback();
-                } catch (SQLException ex) {
-                    System.err.println("Error en rollback: " + ex.getMessage());
-                }
-            }
-            throw new RuntimeException("Error al persistir la factura en SQL Server: " + e.getMessage(), e);
-        } finally {
-            if (con != null) {
-                try {
-                    con.setAutoCommit(true);
-                    con.close();
-                } catch (SQLException e) {
-                    System.err.println("Error al cerrar conexión: " + e.getMessage());
-                }
-            }
-        }
+        } catch (SQLException e) { throw new IllegalStateException("Error de conexión al facturar.", e); }
     }
 
-    @Override
-    public Factura buscarPorNumero(String numero) {
-        if (numero == null || numero.isBlank()) {
-            throw new RuntimeException("Factura no encontrada");
+    private void validarDetalles(Connection con, Factura f) throws SQLException {
+        Map<Long, DetalleFactura> detalles = new HashMap<>();
+        for (DetalleFactura d : f.getDetalles()) {
+            if (detalles.put(d.getProducto().getIdProducto(), d) != null) {
+                throw new IllegalArgumentException("Producto repetido en factura.");
+            }
         }
-
-        String sql = "SELECT f.id_factura, f.numero, f.fecha_hora, f.estado, f.observaciones, "
-                + "c.id_cliente, c.nit, c.nombre AS cliente_nombre, c.direccion, c.telefono, c.correo, "
-                + "u.id_usuario, u.nombre AS usuario_nombre, u.nombre_usuario, u.rol, u.activo "
-                + "FROM dbo.factura f "
-                + "LEFT JOIN dbo.cliente c ON f.cliente_id = c.id_cliente "
-                + "INNER JOIN dbo.usuario u ON f.usuario_id = u.id_usuario "
-                + "WHERE f.numero = ?";
-
-        try (Connection con = conexion.obtenerConexion();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setString(1, numero.trim());
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT id_producto, cantidad, precio_unitario FROM dbo.DetalleOrdenVenta WHERE id_orden = ?")) {
+            ps.setInt(1, f.getOrden().getId());
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    Factura factura = mapearEncabezado(rs);
-                    cargarDetallesYPagos(con, factura);
-                    return factura;
+                while (rs.next()) {
+                    DetalleFactura d = detalles.remove(rs.getLong("id_producto"));
+                    if (d == null || d.getCantidad().compareTo(rs.getBigDecimal("cantidad")) != 0
+                            || d.getPrecioUnitario().compareTo(rs.getBigDecimal("precio_unitario")) != 0
+                            || d.getDescuento().signum() != 0
+                            || d.getPorcentajeImpuesto().compareTo(new java.math.BigDecimal("12.00")) != 0) {
+                        throw new IllegalStateException("Los detalles de factura deben coincidir con la orden.");
+                    }
                 }
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error al buscar factura por número: " + e.getMessage(), e);
         }
-        throw new RuntimeException("Factura no encontrada");
+        if (!detalles.isEmpty()) throw new IllegalStateException("Productos ajenos a la orden.");
     }
 
-    @Override
-    public List<Factura> listar() {
-        List<Factura> lista = new ArrayList<>();
-        String sql = "SELECT f.id_factura, f.numero, f.fecha_hora, f.estado, f.observaciones, "
-                + "c.id_cliente, c.nit, c.nombre AS cliente_nombre, c.direccion, c.telefono, c.correo, "
-                + "u.id_usuario, u.nombre AS usuario_nombre, u.nombre_usuario, u.rol, u.activo "
-                + "FROM dbo.factura f "
-                + "LEFT JOIN dbo.cliente c ON f.cliente_id = c.id_cliente "
-                + "INNER JOIN dbo.usuario u ON f.usuario_id = u.id_usuario "
-                + "ORDER BY f.id_factura DESC";
+    @Override public Factura buscarPorNumero(String numero) {
+        return buscar(SELECT + "WHERE f.numero = ?", numero);
+    }
+    @Override public Factura buscarPorOrden(int idOrden) {
+        return buscar(SELECT + "WHERE f.id_orden = ?", idOrden);
+    }
 
-        try (Connection con = conexion.obtenerConexion();
-             PreparedStatement ps = con.prepareStatement(sql);
+    private Factura buscar(String sql, Object valor) {
+        try (Connection con = ConexionBD.obtenerConexion(); PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setObject(1, valor);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                Factura f = mapear(rs);
+                cargarDetallesYPagos(con, f);
+                return f;
+            }
+        } catch (SQLException e) { throw new IllegalStateException("No se pudo consultar la factura.", e); }
+    }
+
+    @Override public List<Factura> listar() {
+        List<Factura> lista = new ArrayList<>();
+        try (Connection con = ConexionBD.obtenerConexion();
+             PreparedStatement ps = con.prepareStatement(SELECT + "ORDER BY f.id_factura DESC");
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                Factura f = mapearEncabezado(rs);
+                Factura f = mapear(rs);
                 cargarDetallesYPagos(con, f);
                 lista.add(f);
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error al listar facturas: " + e.getMessage(), e);
-        }
-        return lista;
+            return lista;
+        } catch (SQLException e) { throw new IllegalStateException("No se pudieron listar facturas.", e); }
     }
 
-    @Override
-    public void actualizar(Factura factura) {
-        if (factura == null || factura.getIdFactura() <= 0) {
-            throw new IllegalArgumentException("Factura no válida para actualización.");
+    @Override public void actualizar(Factura f) {
+        if (f == null || f.getIdFactura() <= 0 || f.getPagos().isEmpty()) {
+            throw new IllegalArgumentException("Debe registrar un pago en una factura guardada.");
         }
-
-        String sqlFactura = "UPDATE dbo.factura SET estado = ?, observaciones = ?, cliente_id = ? "
-                + "WHERE id_factura = ?";
-        String sqlEliminarDetalles = "DELETE FROM dbo.detalle_factura WHERE factura_id = ?";
-        String sqlDetalle = "INSERT INTO dbo.detalle_factura (factura_id, producto_id, cantidad, precio_unitario, "
-                + "porcentaje_impuesto, descuento, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?)";
-        String sqlEliminarPagos = "DELETE FROM dbo.pago WHERE factura_id = ?";
-        String sqlPago = "INSERT INTO dbo.pago (factura_id, fecha_hora, monto, metodo, referencia) "
-                + "VALUES (?, ?, ?, ?, ?)";
-
-        Connection con = null;
-        try {
-            con = conexion.obtenerConexion();
+        Pago nuevo = f.getPagos().get(f.getPagos().size() - 1);
+        try (Connection con = ConexionBD.obtenerConexion()) {
             con.setAutoCommit(false);
-
-            try (PreparedStatement psF = con.prepareStatement(sqlFactura)) {
-                psF.setString(1, factura.getEstado().name());
-                psF.setString(2, factura.getObservaciones());
-                if (factura.getCliente() != null && factura.getCliente().getIdCliente() > 0) {
-                    psF.setLong(3, factura.getCliente().getIdCliente());
-                } else {
-                    psF.setNull(3, Types.BIGINT);
-                }
-                psF.setLong(4, factura.getIdFactura());
-                psF.executeUpdate();
-            }
-
-            // Actualizar detalles
-            try (PreparedStatement psDelDet = con.prepareStatement(sqlEliminarDetalles)) {
-                psDelDet.setLong(1, factura.getIdFactura());
-                psDelDet.executeUpdate();
-            }
-            if (!factura.getDetalles().isEmpty()) {
-                try (PreparedStatement psD = con.prepareStatement(sqlDetalle)) {
-                    for (DetalleFactura det : factura.getDetalles()) {
-                        psD.setLong(1, factura.getIdFactura());
-                        psD.setLong(2, det.getProducto().getIdProducto());
-                        psD.setBigDecimal(3, det.getCantidad());
-                        psD.setBigDecimal(4, det.getPrecioUnitario());
-                        psD.setBigDecimal(5, det.getPorcentajeImpuesto());
-                        psD.setBigDecimal(6, det.getDescuento());
-                        psD.setBigDecimal(7, det.calcularSubtotal());
-                        psD.addBatch();
+            try {
+                try (PreparedStatement ps = con.prepareStatement(
+                        "SELECT estado, total FROM dbo.factura WITH (UPDLOCK, HOLDLOCK) WHERE id_factura = ?")) {
+                    ps.setLong(1, f.getIdFactura());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next() || !"EMITIDA".equals(rs.getString("estado"))) {
+                            throw new IllegalStateException("La factura ya no admite pagos. Vuelva a consultarla.");
+                        }
                     }
-                    psD.executeBatch();
                 }
-            }
-
-            // Actualizar pagos
-            try (PreparedStatement psDelP = con.prepareStatement(sqlEliminarPagos)) {
-                psDelP.setLong(1, factura.getIdFactura());
-                psDelP.executeUpdate();
-            }
-            if (!factura.getPagos().isEmpty()) {
-                try (PreparedStatement psP = con.prepareStatement(sqlPago)) {
-                    for (Pago p : factura.getPagos()) {
-                        psP.setLong(1, factura.getIdFactura());
-                        psP.setTimestamp(2, Timestamp.valueOf(p.getFechaHora()));
-                        psP.setBigDecimal(3, p.getMonto());
-                        psP.setString(4, p.getMetodo().name());
-                        psP.setString(5, p.getReferencia());
-                        psP.addBatch();
+                try (PreparedStatement ps = con.prepareStatement(
+                        "SELECT COUNT(*) AS n, COALESCE(SUM(monto), 0) AS pagado FROM dbo.pago WHERE factura_id = ?")) {
+                    ps.setLong(1, f.getIdFactura());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        if (rs.getInt("n") != f.getPagos().size() - 1
+                                || rs.getBigDecimal("pagado").compareTo(f.obtenerTotalPagado().subtract(nuevo.getMonto())) != 0) {
+                            throw new IllegalStateException("Los pagos cambiaron. Vuelva a consultar la factura.");
+                        }
                     }
-                    psP.executeBatch();
                 }
-            }
-
-            con.commit();
-        } catch (SQLException e) {
-            if (con != null) {
-                try {
-                    con.rollback();
-                } catch (SQLException ex) {
-                    System.err.println("Error en rollback: " + ex.getMessage());
+                try (PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO dbo.pago (factura_id, fecha_hora, monto, metodo, referencia) VALUES (?, ?, ?, ?, ?)")) {
+                    ps.setLong(1, f.getIdFactura());
+                    ps.setTimestamp(2, Timestamp.valueOf(nuevo.getFechaHora()));
+                    ps.setBigDecimal(3, nuevo.getMonto());
+                    ps.setString(4, nuevo.getMetodo().name());
+                    ps.setString(5, nuevo.getReferencia());
+                    ps.executeUpdate();
                 }
-            }
-            throw new RuntimeException("Error al actualizar la factura: " + e.getMessage(), e);
-        } finally {
-            if (con != null) {
-                try {
-                    con.setAutoCommit(true);
-                    con.close();
-                } catch (SQLException e) {
-                    System.err.println("Error al cerrar conexión: " + e.getMessage());
+                try (PreparedStatement ps = con.prepareStatement(
+                        "UPDATE dbo.factura SET estado = CASE WHEN (SELECT SUM(monto) FROM dbo.pago WHERE factura_id = ?) >= total "
+                        + "THEN 'PAGADA' ELSE 'EMITIDA' END WHERE id_factura = ?")) {
+                    ps.setLong(1, f.getIdFactura());
+                    ps.setLong(2, f.getIdFactura());
+                    ps.executeUpdate();
                 }
+                con.commit();
+            } catch (Exception e) {
+                con.rollback();
+                throw new IllegalStateException("No se pudo registrar el pago: " + e.getMessage(), e);
             }
-        }
+        } catch (SQLException e) { throw new IllegalStateException("Error de conexión al registrar pago.", e); }
     }
 
-    @Override
-    public void anular(long id) {
-        String sql = "UPDATE dbo.factura SET estado = 'ANULADA' WHERE id_factura = ?";
-        try (Connection con = conexion.obtenerConexion();
-             PreparedStatement ps = con.prepareStatement(sql)) {
+    @Override public void anular(long id) {
+        try (Connection con = ConexionBD.obtenerConexion();
+             PreparedStatement ps = con.prepareStatement(
+                     "UPDATE dbo.factura SET estado = 'ANULADA' WHERE id_factura = ? AND estado IN ('EMITIDA', 'PAGADA')")) {
             ps.setLong(1, id);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new RuntimeException("Error al anular factura: " + e.getMessage(), e);
-        }
+            if (ps.executeUpdate() != 1) throw new IllegalStateException("La factura no puede anularse.");
+        } catch (SQLException e) { throw new IllegalStateException("No se pudo anular la factura.", e); }
     }
 
-    private Factura mapearEncabezado(ResultSet rs) throws SQLException {
+    private Factura mapear(ResultSet rs) throws SQLException {
         Factura f = new Factura();
         f.setIdFactura(rs.getLong("id_factura"));
         f.setNumero(rs.getString("numero"));
-        Timestamp ts = rs.getTimestamp("fecha_hora");
-        if (ts != null) {
-            f.setFechaHora(ts.toLocalDateTime());
-        }
+        f.setFechaHora(rs.getTimestamp("fecha_hora").toLocalDateTime());
         f.setEstado(EstadoFactura.valueOf(rs.getString("estado")));
         f.setObservaciones(rs.getString("observaciones"));
-
-        long idCliente = rs.getLong("id_cliente");
-        if (!rs.wasNull() && idCliente > 0) {
-            Cliente c = new Cliente(
-                    idCliente,
-                    rs.getString("nit"),
-                    rs.getString("cliente_nombre"),
-                    rs.getString("direccion"),
-                    rs.getString("telefono"),
-                    rs.getString("correo")
-            );
-            f.setCliente(c);
-        }
-
-        Usuario u = new Usuario(
-                rs.getLong("id_usuario"),
-                rs.getString("usuario_nombre"),
-                rs.getString("nombre_usuario"),
-                rs.getString("rol"),
-                rs.getBoolean("activo")
-        );
-        f.setUsuario(u);
-
+        f.setCliente(new Cliente(rs.getLong("cliente_id"), rs.getString("nit"), rs.getString("cliente_nombre"),
+                rs.getString("direccion"), rs.getString("telefono"), rs.getString("correo")));
+        f.setUsuario(new Usuario(rs.getLong("usuario_id"), rs.getString("usuario_nombre"), rs.getString("nombre_usuario"),
+                rs.getString("rol"), rs.getBoolean("activo")));
+        OrdenVenta o = new OrdenVenta();
+        o.setId(rs.getInt("id_orden"));
+        o.setNumeroOrden(rs.getString("numero_orden"));
+        o.setEstado(EstadoOrdenVenta.valueOf(rs.getString("estado_orden")));
+        o.setCliente(f.getCliente());
+        f.setOrden(o);
         return f;
     }
 
-    private void cargarDetallesYPagos(Connection con, Factura factura) throws SQLException {
-        String sqlDetalles = "SELECT d.id_detalle, d.cantidad, d.precio_unitario, d.porcentaje_impuesto, "
-                + "d.descuento, d.subtotal, "
-                + "p.id_producto, p.codigo, p.nombre AS prod_nombre, p.descripcion, p.precio_venta, p.activo, "
-                + "c.id_categoria, c.nombre AS cat_nombre, c.descripcion AS cat_desc, c.activa AS cat_activa "
-                + "FROM dbo.detalle_factura d "
-                + "INNER JOIN dbo.producto p ON d.producto_id = p.id_producto "
-                + "INNER JOIN dbo.categoria c ON p.categoria_id = c.id_categoria "
-                + "WHERE d.factura_id = ?";
-
-        try (PreparedStatement ps = con.prepareStatement(sqlDetalles)) {
-            ps.setLong(1, factura.getIdFactura());
+    private void cargarDetallesYPagos(Connection con, Factura f) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT d.*, p.codigo, p.nombre FROM dbo.detalle_factura d "
+                + "JOIN dbo.producto p ON p.id_producto = d.producto_id WHERE d.factura_id = ? ORDER BY d.id_detalle")) {
+            ps.setLong(1, f.getIdFactura());
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    Categoria cat = new Categoria(
-                            rs.getLong("id_categoria"),
-                            rs.getString("cat_nombre"),
-                            rs.getString("cat_desc"),
-                            rs.getBoolean("cat_activa")
-                    );
-                    Producto prod = new Producto(
-                            rs.getLong("id_producto"),
-                            rs.getString("codigo"),
-                            rs.getString("prod_nombre"),
-                            rs.getString("descripcion"),
-                            rs.getBigDecimal("precio_venta"),
-                            rs.getBoolean("activo"),
-                            cat
-                    );
-
-                    DetalleFactura det = new DetalleFactura(
-                            rs.getLong("id_detalle"),
-                            prod,
-                            rs.getBigDecimal("cantidad"),
-                            rs.getBigDecimal("precio_unitario"),
-                            rs.getBigDecimal("porcentaje_impuesto"),
-                            rs.getBigDecimal("descuento")
-                    );
-                    factura.agregarDetalleDirecto(det);
+                    Producto p = new Producto();
+                    p.setIdProducto(rs.getLong("producto_id")); p.setCodigo(rs.getString("codigo")); p.setNombre(rs.getString("nombre"));
+                    f.agregarDetalleDirecto(new DetalleFactura(rs.getLong("id_detalle"), p, rs.getBigDecimal("cantidad"),
+                            rs.getBigDecimal("precio_unitario"), rs.getBigDecimal("porcentaje_impuesto"), rs.getBigDecimal("descuento")));
                 }
             }
         }
-
-        String sqlPagos = "SELECT id_pago, fecha_hora, monto, metodo, referencia "
-                + "FROM dbo.pago WHERE factura_id = ?";
-
-        try (PreparedStatement ps = con.prepareStatement(sqlPagos)) {
-            ps.setLong(1, factura.getIdFactura());
+        try (PreparedStatement ps = con.prepareStatement("SELECT * FROM dbo.pago WHERE factura_id = ? ORDER BY id_pago")) {
+            ps.setLong(1, f.getIdFactura());
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    Timestamp tsP = rs.getTimestamp("fecha_hora");
-                    Pago pago = new Pago(
-                            rs.getLong("id_pago"),
-                            tsP != null ? tsP.toLocalDateTime() : null,
-                            rs.getBigDecimal("monto"),
-                            MetodoPago.valueOf(rs.getString("metodo")),
-                            rs.getString("referencia")
-                    );
-                    factura.agregarPagoDirecto(pago);
-                }
+                while (rs.next()) f.agregarPagoDirecto(new Pago(rs.getLong("id_pago"), rs.getTimestamp("fecha_hora").toLocalDateTime(),
+                        rs.getBigDecimal("monto"), MetodoPago.valueOf(rs.getString("metodo")), rs.getString("referencia")));
             }
         }
     }

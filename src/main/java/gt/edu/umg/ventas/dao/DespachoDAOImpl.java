@@ -1,79 +1,36 @@
 package gt.edu.umg.ventas.dao;
-
-import gt.edu.umg.ventas.modelo.Despacho;
-import gt.edu.umg.ventas.modelo.EstadoDespacho;
+import gt.edu.umg.ventas.modelo.*;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
 
 public class DespachoDAOImpl implements DespachoDAO {
-    @Override
-    public void crear(Despacho d) {
-        String sql = "INSERT INTO Despacho (numero_despacho, id_orden, id_bodega, fecha_despacho, estado) VALUES (?, ?, ?, ?, ?)";
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, d.getNumeroDespacho());
-            stmt.setInt(2, d.getOrden().getId());
-            stmt.setInt(3, d.getBodega().getId());
-            stmt.setTimestamp(4, Timestamp.valueOf(d.getFechaDespacho()));
-            stmt.setString(5, d.getEstado().name());
-            stmt.executeUpdate();
-        } catch (Exception ex) { ex.printStackTrace(); }
-    }
-    @Override
-    public Despacho obtener(int id) {
-        String sql = "SELECT * FROM Despacho WHERE id = ?";
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, id);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if(rs.next()){
-                    Despacho d = new Despacho();
-                    d.setId(rs.getInt("id"));
-                    d.setNumeroDespacho(rs.getString("numero_despacho"));
-                    d.setEstado(EstadoDespacho.valueOf(rs.getString("estado")));
-                    d.setFechaDespacho(rs.getTimestamp("fecha_despacho").toLocalDateTime());
-                    return d;
-                }
-            }
-        } catch (Exception ex) { ex.printStackTrace(); }
-        throw new RuntimeException("Despacho no encontrado");
-    }
-    @Override
-    public List<Despacho> obtenerTodos() {
-        List<Despacho> lista = new ArrayList<>();
-        String sql = "SELECT * FROM Despacho";
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            while(rs.next()){
-                Despacho d = new Despacho();
-                d.setId(rs.getInt("id"));
-                d.setNumeroDespacho(rs.getString("numero_despacho"));
+    @Override public Despacho obtener(int id) { return consultar("id",id); }
+    @Override public Despacho obtenerPorOrden(int idOrden) { return consultar("id_orden",idOrden); }
+    private Despacho consultar(String campo, int id) {
+        try (Connection con=ConexionBD.obtenerConexion();
+             PreparedStatement ps=con.prepareStatement("SELECT * FROM dbo.Despacho WHERE "+campo+"=?")) {
+            ps.setInt(1,id);
+            Despacho d;
+            try (ResultSet rs=ps.executeQuery()) {
+                if (!rs.next()) return null;
+                d=new Despacho(); d.setId(rs.getInt("id")); d.setNumeroDespacho(rs.getString("numero_despacho"));
                 d.setEstado(EstadoDespacho.valueOf(rs.getString("estado")));
                 d.setFechaDespacho(rs.getTimestamp("fecha_despacho").toLocalDateTime());
-                lista.add(d);
+                d.setOrden(new OrdenVentaDAOImpl().obtener(rs.getInt("id_orden")));
+                d.setBodega(new BodegaDAOImpl().obtener(rs.getInt("id_bodega")));
             }
-        } catch (Exception ex) { ex.printStackTrace(); }
-        return lista;
-    }
-    @Override
-    public void actualizar(Despacho d) {
-        String sql = "UPDATE Despacho SET estado = ? WHERE id = ?";
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, d.getEstado().name());
-            stmt.setInt(2, d.getId());
-            stmt.executeUpdate();
-        } catch (Exception ex) { ex.printStackTrace(); }
-    }
-    @Override
-    public void eliminar(int id) {
-        String sql = "DELETE FROM Despacho WHERE id = ?";
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, id);
-            stmt.executeUpdate();
-        } catch (Exception ex) { ex.printStackTrace(); }
+            try (PreparedStatement detalles=con.prepareStatement(
+                    "SELECT dd.*,p.codigo,p.nombre FROM dbo.DetalleDespacho dd JOIN dbo.producto p ON p.id_producto=dd.id_producto WHERE dd.id_despacho=? ORDER BY dd.id_producto")) {
+                detalles.setInt(1,d.getId());
+                try (ResultSet rs=detalles.executeQuery()) {
+                    while (rs.next()) {
+                        Producto p=new Producto(); p.setIdProducto(rs.getLong("id_producto")); p.setCodigo(rs.getString("codigo")); p.setNombre(rs.getString("nombre"));
+                        DetalleDespacho linea=new DetalleDespacho(); linea.setDespacho(d); linea.setProducto(p);
+                        linea.setCantidadSolicitada(rs.getInt("cantidad_solicitada")); linea.setCantidadDespachada(rs.getInt("cantidad_despachada"));
+                        d.getDetalles().add(linea);
+                    }
+                }
+            }
+            return d;
+        } catch (SQLException e) { throw new IllegalStateException("No se pudo consultar el despacho.",e); }
     }
 }

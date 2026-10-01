@@ -85,7 +85,7 @@ public class PantallaFacturacion extends JInternalFrame {
         panelSuperior.setBorder(new EmptyBorder(10, 10, 5, 10));
 
         // 1. Barra de información de Factura (Número, Estado, Fecha)
-        JPanel panelInfo = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 5));
+        JPanel panelInfo = new JPanel(new GridLayout(0, 1, 5, 5));
         panelInfo.setBorder(BorderFactory.createTitledBorder("Información del Documento"));
 
         lblNumero = new JLabel("Factura: [NUEVA]");
@@ -100,8 +100,9 @@ public class PantallaFacturacion extends JInternalFrame {
         btnCargarOrden = new JButton("📥 Cargar desde Orden");
 
         panelInfo.add(lblNumero);
-        panelInfo.add(lblEstado);
-        panelInfo.add(lblFecha);
+        JPanel estadoFecha = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0));
+        estadoFecha.add(lblEstado); estadoFecha.add(lblFecha);
+        panelInfo.add(estadoFecha);
         panelInfo.add(btnCargarOrden);
 
         // 2. Datos del Cliente
@@ -201,7 +202,12 @@ public class PantallaFacturacion extends JInternalFrame {
         btnEliminarProd = new JButton("➖ Quitar Selección");
         panelProducto.add(btnEliminarProd, gbcP);
 
-        panelCentro.add(panelProducto, BorderLayout.NORTH);
+        // Los detalles provienen de la orden despachada y no se editan aquí.
+        panelProducto.setVisible(false);
+        btnBuscarCliente.setVisible(false);
+        txtNit.setEditable(false);
+        txtClienteNombre.setEditable(false);
+        txtDireccion.setEditable(false);
 
         // Tabla de detalles
         modeloTabla = new DefaultTableModel(
@@ -224,6 +230,7 @@ public class PantallaFacturacion extends JInternalFrame {
         tblDetalle.getColumnModel().getColumn(5).setCellRenderer(derechaRenderer);
 
         JScrollPane scrollTabla = new JScrollPane(tblDetalle);
+        scrollTabla.setColumnHeaderView(tblDetalle.getTableHeader());
         panelCentro.add(scrollTabla, BorderLayout.CENTER);
 
         add(panelCentro, BorderLayout.CENTER);
@@ -270,7 +277,7 @@ public class PantallaFacturacion extends JInternalFrame {
 
         // Panel de Botones de Acción
         JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
-        btnNuevaFactura = new JButton("📄 Nueva Factura");
+        btnNuevaFactura = new JButton("Limpiar selección");
         btnEmitir = new JButton("🚀 Emitir Factura");
         btnEmitir.setFont(btnEmitir.getFont().deriveFont(Font.BOLD, 13f));
         btnConsultar = new JButton("🔎 Consultar Factura");
@@ -308,10 +315,17 @@ public class PantallaFacturacion extends JInternalFrame {
     public void mostrarFactura(Factura factura) {
         if (factura == null) {
             limpiarFormulario();
+            btnEmitir.setEnabled(false);
+            btnAnular.setEnabled(false);
+            btnRegistrarPago.setEnabled(false);
             return;
         }
+        btnEmitir.setEnabled(factura.getEstado() == EstadoFactura.BORRADOR);
+        btnAnular.setEnabled(factura.getEstado() == EstadoFactura.EMITIDA || factura.getEstado() == EstadoFactura.PAGADA);
+        btnRegistrarPago.setEnabled(factura.getEstado() == EstadoFactura.EMITIDA);
 
-        lblNumero.setText("Factura: " + (factura.getNumero() != null ? factura.getNumero() : "[NUEVA]"));
+        lblNumero.setText("Factura: " + factura.getNumero());
+        btnCargarOrden.setToolTipText("Orden actual: " + (factura.getOrden() != null ? factura.getOrden().getNumeroOrden() : "-"));
         lblEstado.setText("Estado: " + factura.getEstado().name());
         if (factura.getEstado() == EstadoFactura.EMITIDA) {
             lblEstado.setForeground(new Color(30, 144, 255));
@@ -369,8 +383,12 @@ public class PantallaFacturacion extends JInternalFrame {
     }
 
     public void limpiarFormulario() {
-        lblNumero.setText("Factura: [NUEVA]");
-        lblEstado.setText("Estado: BORRADOR");
+        btnEmitir.setEnabled(false);
+        btnAnular.setEnabled(false);
+        btnRegistrarPago.setEnabled(false);
+        btnCargarOrden.setToolTipText("Seleccione una orden con despacho confirmado.");
+        lblNumero.setText("Seleccione una orden despachada");
+        lblEstado.setText("Estado: Sin selección");
         lblEstado.setForeground(new Color(218, 165, 32));
         lblFecha.setText("Fecha: Hoy");
         txtNit.setText("");

@@ -1,4 +1,5 @@
 package gt.edu.umg.ventas.vista;
+import gt.edu.umg.ventas.util.Dialogos;
 
 import gt.edu.umg.ventas.controlador.ClienteController;
 import gt.edu.umg.ventas.modelo.Cliente;
@@ -136,7 +137,7 @@ public class FrmClientes extends JInternalFrame {
                     txtCorreo.setText(c.getCorreo() != null ? c.getCorreo() : "");
                 }
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Error al cargar datos del cliente: " + ex.getMessage(),
+                Dialogos.showMessageDialog(this, "Error al cargar datos del cliente: " + ex.getMessage(),
                         "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
@@ -157,7 +158,7 @@ public class FrmClientes extends JInternalFrame {
                 });
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error al cargar clientes desde SQL Server: " + ex.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al cargar clientes desde SQL Server: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -166,7 +167,7 @@ public class FrmClientes extends JInternalFrame {
         String nit = txtNit.getText().trim();
         String nombre = txtNombre.getText().trim();
         if (nit.isEmpty() || nombre.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "El NIT y el Nombre son obligatorios.", "Validación", JOptionPane.WARNING_MESSAGE);
+            Dialogos.showMessageDialog(this, "El NIT y el Nombre son obligatorios.", "Validación", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -181,18 +182,18 @@ public class FrmClientes extends JInternalFrame {
 
             if (idClienteSeleccionado > 0) {
                 controller.actualizar(c);
-                JOptionPane.showMessageDialog(this, "Cliente actualizado exitosamente.",
+                Dialogos.showMessageDialog(this, "Cliente actualizado exitosamente.",
                         "Éxito", JOptionPane.INFORMATION_MESSAGE);
             } else {
                 controller.guardar(c);
-                JOptionPane.showMessageDialog(this, "Cliente guardado exitosamente con ID: " + c.getIdCliente(),
+                Dialogos.showMessageDialog(this, "Cliente guardado exitosamente con ID: " + c.getIdCliente(),
                         "Éxito", JOptionPane.INFORMATION_MESSAGE);
             }
 
             limpiarCampos();
             cargarClientes();
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error al guardar cliente: " + ex.getMessage(),
+            Dialogos.showMessageDialog(this, "Error al guardar cliente: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
     }

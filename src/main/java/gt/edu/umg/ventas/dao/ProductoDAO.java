@@ -16,4 +16,6 @@ public interface ProductoDAO {
     List<Producto> listar();
 
     List<Producto> buscarPorTexto(String criterio);
+    void guardar(Producto producto);
+    void actualizar(Producto producto);
 }

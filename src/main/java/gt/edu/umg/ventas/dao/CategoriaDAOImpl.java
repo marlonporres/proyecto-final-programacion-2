@@ -13,6 +13,22 @@ import java.util.List;
  * Implementación JDBC para CategoriaDAO.
  */
 public class CategoriaDAOImpl implements CategoriaDAO {
+    @Override public void guardar(Categoria c) { escribir(c, false); }
+    @Override public void actualizar(Categoria c) { escribir(c, true); }
+    private void escribir(Categoria c, boolean editar) {
+        if (c == null || c.getNombre() == null || c.getNombre().isBlank() || (editar && c.getIdCategoria() <= 0)) {
+            throw new IllegalArgumentException("El nombre de categoría es obligatorio.");
+        }
+        String sql = editar ? "UPDATE dbo.categoria SET nombre=?, descripcion=?, activa=? WHERE id_categoria=?"
+                : "INSERT dbo.categoria (nombre,descripcion,activa) VALUES (?,?,?)";
+        try (Connection con = ConexionBD.obtenerConexion();
+             PreparedStatement ps = con.prepareStatement(sql, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+            ps.setString(1, c.getNombre().trim()); ps.setString(2, c.getDescripcion()); ps.setBoolean(3, c.isActiva());
+            if (editar) ps.setLong(4, c.getIdCategoria());
+            if (ps.executeUpdate() != 1) throw new SQLException("Categoría no encontrada.");
+            if (!editar) try (ResultSet rs = ps.getGeneratedKeys()) { if (rs.next()) c.setIdCategoria(rs.getLong(1)); }
+        } catch (SQLException e) { throw new IllegalStateException("No se pudo guardar la categoría: " + e.getMessage(), e); }
+    }
 
     private final ConexionBD conexion;
 
@@ -44,7 +60,7 @@ public class CategoriaDAOImpl implements CategoriaDAO {
     @Override
     public List<Categoria> listar() {
         List<Categoria> lista = new ArrayList<>();
-        String sql = "SELECT id_categoria, nombre, descripcion, activa FROM dbo.categoria WHERE activa = 1 ORDER BY nombre ASC";
+        String sql = "SELECT id_categoria, nombre, descripcion, activa FROM dbo.categoria ORDER BY nombre ASC";
         try (Connection con = conexion.obtenerConexion();
              PreparedStatement ps = con.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {

@@ -22,6 +22,7 @@ public interface FacturaDAO {
      * @return Factura encontrada o null si no existe
      */
     Factura buscarPorNumero(String numero);
+    Factura buscarPorOrden(int idOrden);
 
     /**
      * Lista todas las facturas registradas.

@@ -14,4 +14,5 @@ public interface OrdenVentaDAO {
     void actualizar(OrdenVenta ordenVenta);
     void eliminar(int id);
     List<OrdenVentaResumen> buscarPorFecha(LocalDateTime desde, LocalDateTime hasta);
+    boolean tieneDespachoConfirmado(int idOrden);
 }

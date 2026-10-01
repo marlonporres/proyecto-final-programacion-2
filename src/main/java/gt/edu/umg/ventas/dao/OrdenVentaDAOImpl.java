@@ -13,9 +13,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class OrdenVentaDAOImpl implements OrdenVentaDAO {
+    @Override
+    public boolean tieneDespachoConfirmado(int idOrden) {
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM dbo.Despacho WHERE id_orden = ? AND estado = 'CONFIRMADO'")) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (SQLException e) { throw new IllegalStateException("No se pudo verificar el despacho.", e); }
+    }
+
 
     @Override
     public void crear(OrdenVenta o) {
+        Integer idAnterior = o.getId();
         String sql = "INSERT INTO dbo.OrdenVenta (numero_orden, fecha, id_cliente, id_usuario, total, estado, observaciones) VALUES (?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = ConexionBD.obtenerConexion()) {
             conn.setAutoCommit(false);
@@ -30,9 +40,8 @@ public class OrdenVentaDAOImpl implements OrdenVentaDAO {
                     stmt.setString(7, o.getObservaciones());
                     stmt.executeUpdate();
                     try (ResultSet rs = stmt.getGeneratedKeys()) {
-                        if (rs.next()) {
-                            o.setId(rs.getInt(1));
-                        }
+                        if (!rs.next()) throw new SQLException("No se obtuvo el ID de la orden.");
+                        o.setId(rs.getInt(1));
                     }
                 }
 
@@ -51,7 +60,8 @@ public class OrdenVentaDAOImpl implements OrdenVentaDAO {
 
                 conn.commit();
             } catch (Exception e) {
-                conn.rollback();
+                o.setId(idAnterior);
+                try { conn.rollback(); } catch (SQLException rollback) { e.addSuppressed(rollback); }
                 throw new RuntimeException("Error al guardar la orden de venta: " + e.getMessage(), e);
             }
         } catch (SQLException e) {
@@ -250,11 +260,12 @@ public class OrdenVentaDAOImpl implements OrdenVentaDAO {
         List<OrdenVentaResumen> lista = new ArrayList<>();
         String sql = "SELECT o.id, o.numero_orden, o.fecha, c.nombre AS cliente, o.estado, o.total, "
                 + "ISNULL(d.estado, 'Pendiente') AS estado_despacho, "
-                + "ISNULL(b.nombre, '-') AS bodega "
+                + "ISNULL(b.nombre, '-') AS bodega, d.numero_despacho, f.numero AS numero_factura, f.estado AS estado_factura "
                 + "FROM dbo.OrdenVenta o "
                 + "INNER JOIN dbo.cliente c ON o.id_cliente = c.id_cliente "
                 + "LEFT JOIN dbo.Despacho d ON d.id_orden = o.id "
                 + "LEFT JOIN dbo.Bodega b ON d.id_bodega = b.id "
+                + "LEFT JOIN dbo.factura f ON f.id_orden = o.id "
                 + "WHERE o.fecha >= ? AND o.fecha < ? "
                 + "ORDER BY o.fecha DESC";
 
@@ -277,6 +288,9 @@ public class OrdenVentaDAOImpl implements OrdenVentaDAO {
                     r.setTotal(rs.getBigDecimal("total"));
                     r.setEstadoDespacho(rs.getString("estado_despacho"));
                     r.setNombreBodega(rs.getString("bodega"));
+                    r.setNumeroDespacho(rs.getString("numero_despacho"));
+                    r.setNumeroFactura(rs.getString("numero_factura"));
+                    r.setEstadoFactura(rs.getString("estado_factura"));
                     lista.add(r);
                 }
             }

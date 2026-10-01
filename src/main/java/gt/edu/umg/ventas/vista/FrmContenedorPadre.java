@@ -23,7 +23,7 @@ public class FrmContenedorPadre extends JFrame {
         setContentPane(desktopPane);
 
         JMenuBar menuBar = new JMenuBar();
-        itemFacturacion = new JMenuItem("Facturacion");
+        itemFacturacion = new JMenuItem("Facturación de órdenes despachadas");
         itemClientes = new JMenuItem("Clientes");
         itemProductos = new JMenuItem("Productos");
 
@@ -37,6 +37,7 @@ public class FrmContenedorPadre extends JFrame {
         
         menuVentas.add(itemNuevaOrden);
         menuVentas.add(itemConsultarOrdenes);
+        menuVentas.add(itemFacturacion);
         menuBar.add(menuVentas);
 
         // Menu Inventario

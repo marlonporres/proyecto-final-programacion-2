@@ -1,237 +1,130 @@
 package gt.edu.umg.ventas.servicio;
 
-import gt.edu.umg.ventas.dao.FacturaDAO;
-import gt.edu.umg.ventas.dao.FacturaDAOImpl;
-import gt.edu.umg.ventas.dao.ProductoDAO;
-import gt.edu.umg.ventas.dao.ProductoDAOImpl;
-import gt.edu.umg.ventas.modelo.Cliente;
-import gt.edu.umg.ventas.modelo.DetalleFactura;
-import gt.edu.umg.ventas.modelo.EstadoFactura;
-import gt.edu.umg.ventas.modelo.Factura;
-import gt.edu.umg.ventas.modelo.Pago;
-import gt.edu.umg.ventas.modelo.Producto;
-import gt.edu.umg.ventas.modelo.Usuario;
-
+import gt.edu.umg.ventas.dao.*;
+import gt.edu.umg.ventas.modelo.*;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Capa de servicio encargada de las reglas de negocio y orquestación
- * del ciclo de vida de una factura (creación, adición de productos,
- * emisión con descuento de inventario, pagos y anulación).
- */
+/** Documento comercial posterior al despacho; nunca modifica existencias. */
 public class FacturaService {
-
     private final FacturaDAO facturaDAO;
-    private final ProductoDAO productoDAO;
+    private final OrdenVentaDAO ordenDAO;
+    private final Map<Long, Factura> activas = new HashMap<>();
+    private final AtomicLong borradores = new AtomicLong();
 
-    // Almacenamiento en memoria para el ciclo de trabajo de facturas activas
-    private final Map<Long, Factura> facturasActivas = new ConcurrentHashMap<>();
-    private final AtomicLong idGenerator = new AtomicLong(System.currentTimeMillis() % 1000000);
-
-    public FacturaService() {
-        this.facturaDAO = new FacturaDAOImpl();
-        this.productoDAO = new ProductoDAOImpl();
+    public FacturaService() { this(new FacturaDAOImpl(), new OrdenVentaDAOImpl()); }
+    public FacturaService(FacturaDAO facturaDAO, OrdenVentaDAO ordenDAO) {
+        this.facturaDAO = Objects.requireNonNull(facturaDAO);
+        this.ordenDAO = Objects.requireNonNull(ordenDAO);
     }
 
-    public FacturaService(FacturaDAO facturaDAO, ProductoDAO productoDAO) {
-        this.facturaDAO = facturaDAO;
-        this.productoDAO = productoDAO;
+    public List<OrdenVenta> obtenerOrdenesFacturables() {
+        return ordenDAO.obtenerTodos().stream()
+                .filter(o -> o.getEstado() == EstadoOrdenVenta.COMPLETADA)
+                .filter(o -> ordenDAO.tieneDespachoConfirmado(o.getId()))
+                .filter(o -> facturaDAO.buscarPorOrden(o.getId()) == null).toList();
     }
 
-    /**
-     * Crea una nueva factura en estado BORRADOR con un número correlativo único.
-     *
-     * @param cliente Cliente opcional (puede ser null para consumidor final genérico)
-     * @param usuario Usuario obligatorio que registra la transacción
-     * @return Factura instanciada en estado BORRADOR
-     * @throws IllegalArgumentException si el usuario es nulo
-     */
-    public Factura crear(Cliente cliente, Usuario usuario) {
-        if (usuario == null) {
-            throw new IllegalArgumentException("Se requiere un usuario válido para registrar la factura.");
+    public Factura crearDesdeOrden(int idOrden, Usuario usuario) {
+        if (usuario == null || usuario.getIdUsuario() <= 0 || !usuario.isActivo()) {
+            throw new IllegalArgumentException("Se requiere un usuario activo.");
         }
-
-        long id = idGenerator.incrementAndGet();
-        String numero = "FAC-" + id;
-
-        Factura factura = new Factura(id, numero, LocalDateTime.now(), EstadoFactura.BORRADOR, "", cliente, usuario);
-        facturasActivas.put(id, factura);
+        OrdenVenta orden = validarOrden(idOrden);
+        Factura factura = copiarOrden(orden, usuario);
+        factura.setIdFactura(-borradores.incrementAndGet());
+        factura.setNumero("FAC-" + UUID.randomUUID());
+        activas.put(factura.getIdFactura(), factura);
         return factura;
     }
 
-    /**
-     * Agrega un producto a la factura especificada previa validación de existencia e inventario.
-     *
-     * @param idFactura ID de la factura activa
-     * @param producto Producto a agregar
-     * @param cantidad Cantidad solicitada (debe ser > 0)
-     * @return Factura actualizada
-     */
-    public Factura agregarProducto(long idFactura, Producto producto, BigDecimal cantidad) {
-        Factura factura = obtenerFactura(idFactura);
-
-        if (factura.getEstado() != EstadoFactura.BORRADOR) {
-            throw new IllegalStateException("Solo se pueden agregar productos a una factura en estado BORRADOR.");
+    private OrdenVenta validarOrden(int idOrden) {
+        OrdenVenta o = ordenDAO.obtener(idOrden);
+        if (o == null || o.getEstado() != EstadoOrdenVenta.COMPLETADA
+                || !ordenDAO.tieneDespachoConfirmado(idOrden)) {
+            throw new IllegalStateException("La factura requiere una orden con despacho confirmado.");
         }
-        if (producto == null) {
-            throw new IllegalArgumentException("El producto no puede ser nulo.");
+        if (facturaDAO.buscarPorOrden(idOrden) != null) {
+            throw new IllegalStateException("La orden ya tiene una factura, incluso si fue anulada.");
         }
-        if (!producto.isActivo()) {
-            throw new IllegalStateException("No se puede agregar el producto '" + producto.getNombre() 
-                    + "' porque está inactivo en el sistema.");
+        if (o.getCliente() == null || o.getDetalles().isEmpty()) {
+            throw new IllegalStateException("La orden no contiene cliente o detalles válidos.");
         }
-        if (cantidad == null || cantidad.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("La cantidad debe ser estrictamente mayor a cero.");
-        }
-        factura.agregarDetalle(producto, cantidad);
-        return factura;
+        return o;
     }
 
-    /**
-     * Emite una factura: valida detalles, cambia el estado a EMITIDA y persiste.
-     * El descuento físico de stock se gestiona en el despacho de la Orden de Venta.
-     *
-     * @param idFactura ID de la factura
-     * @return Factura emitida
-     */
+    private Factura copiarOrden(OrdenVenta orden, Usuario usuario) {
+        Factura f = new Factura();
+        f.setOrden(orden);
+        f.setCliente(orden.getCliente());
+        f.setUsuario(usuario);
+        f.setObservaciones("Facturación de orden " + orden.getNumeroOrden());
+        for (DetalleOrdenVenta d : orden.getDetalles()) {
+            f.agregarDetalleDirecto(new DetalleFactura(0, d.getProducto(), BigDecimal.valueOf(d.getCantidad()),
+                    d.getPrecioUnitario(), new BigDecimal("12.00"), BigDecimal.ZERO));
+        }
+        return f;
+    }
+
     public Factura emitir(long idFactura) {
-        Factura factura = obtenerFactura(idFactura);
-
-        if (factura.getEstado() == EstadoFactura.ANULADA) {
-            throw new IllegalStateException("No se puede emitir una factura ANULADA.");
+        Factura borrador = obtenerFactura(idFactura);
+        if (borrador.getEstado() != EstadoFactura.BORRADOR) {
+            throw new IllegalStateException("Solo se pueden emitir facturas en borrador.");
         }
-        if (factura.getEstado() != EstadoFactura.BORRADOR) {
-            throw new IllegalStateException("La factura ya fue emitida previamente (Estado: " + factura.getEstado() + ").");
-        }
-        if (factura.getDetalles().isEmpty()) {
-            throw new IllegalStateException("No se puede emitir una factura sin líneas de detalle.");
-        }
-
-        // 1. Cambiar estado a EMITIDA
-        factura.setEstado(EstadoFactura.EMITIDA);
-
-        // 4. Persistir mediante DAO si está disponible
-        if (facturaDAO != null) {
-            try {
-                facturaDAO.guardar(factura);
-                facturasActivas.put(factura.getIdFactura(), factura);
-            } catch (Exception e) {
-                System.err.println("Advertencia al persistir factura mediante DAO: " + e.getMessage());
-            }
-        }
-
-        return factura;
+        if (borrador.getOrden() == null) throw new IllegalStateException("La factura requiere una orden.");
+        Factura f = copiarOrden(validarOrden(borrador.getOrden().getId()), borrador.getUsuario());
+        f.setNumero(borrador.getNumero());
+        f.setEstado(EstadoFactura.EMITIDA);
+        facturaDAO.guardar(f);
+        activas.remove(idFactura);
+        activas.put(f.getIdFactura(), f);
+        return f;
     }
 
-    /**
-     * Registra un pago para una factura emitida. Si la suma de pagos cubre o supera
-     * el total de la factura, el estado se actualiza a PAGADA.
-     *
-     * @param idFactura ID de la factura
-     * @param pago Pago a registrar
-     * @return Factura actualizada
-     */
     public Factura registrarPago(long idFactura, Pago pago) {
-        Factura factura = obtenerFactura(idFactura);
-
-        if (factura.getEstado() == EstadoFactura.ANULADA) {
-            throw new IllegalStateException("No se pueden registrar pagos en una factura ANULADA.");
+        Factura actual = obtenerFactura(idFactura);
+        if (actual.getEstado() != EstadoFactura.EMITIDA) {
+            throw new IllegalStateException("Solo se pueden registrar pagos en facturas emitidas.");
         }
-        if (pago == null) {
-            throw new IllegalArgumentException("El pago no puede ser nulo.");
-        }
-        if (pago.getMonto() == null || pago.getMonto().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("El monto del pago debe ser mayor a cero.");
-        }
-
-        factura.registrarPago(pago);
-
-        // Actualizar en base de datos si ya cuenta con ID persistido
-        if (facturaDAO != null && factura.getIdFactura() > 0) {
-            try {
-                facturaDAO.actualizar(factura);
-            } catch (Exception e) {
-                System.err.println("Advertencia al actualizar pago en DAO: " + e.getMessage());
-            }
-        }
-
-        return factura;
+        Factura copia = copiarFactura(actual);
+        copia.registrarPago(pago);
+        facturaDAO.actualizar(copia);
+        activas.put(idFactura, copia);
+        return copia;
     }
 
-    /**
-     * Anula una factura y repone el inventario de los productos facturados si ya estaba emitida o pagada.
-     *
-     * @param idFactura ID de la factura a anular
-     * @return Factura anulada
-     */
     public Factura anular(long idFactura) {
-        Factura factura = obtenerFactura(idFactura);
-
-        if (factura.getEstado() == EstadoFactura.ANULADA) {
-            throw new IllegalStateException("La factura ya se encuentra ANULADA.");
+        Factura actual = obtenerFactura(idFactura);
+        if (actual.getEstado() != EstadoFactura.EMITIDA && actual.getEstado() != EstadoFactura.PAGADA) {
+            throw new IllegalStateException("Solo se pueden anular facturas emitidas o pagadas.");
         }
-        factura.setEstado(EstadoFactura.ANULADA);
-
-        if (facturaDAO != null && factura.getIdFactura() > 0) {
-            try {
-                facturaDAO.anular(factura.getIdFactura());
-            } catch (Exception e) {
-                System.err.println("Advertencia al anular factura en DAO: " + e.getMessage());
-            }
-        }
-
-        return factura;
+        facturaDAO.anular(idFactura);
+        Factura copia = copiarFactura(actual);
+        copia.setEstado(EstadoFactura.ANULADA);
+        activas.put(idFactura, copia);
+        return copia;
     }
 
-    /**
-     * Consulta una factura por su número correlativo.
-     *
-     * @param numero Número de factura (ej. FAC-1001)
-     * @return Factura encontrada o null
-     */
+    private Factura copiarFactura(Factura actual) {
+        Factura f = new Factura(actual.getIdFactura(), actual.getNumero(), actual.getFechaHora(),
+                actual.getEstado(), actual.getObservaciones(), actual.getCliente(), actual.getUsuario());
+        f.setOrden(actual.getOrden());
+        actual.getDetalles().forEach(f::agregarDetalleDirecto);
+        actual.getPagos().forEach(f::agregarPagoDirecto);
+        return f;
+    }
+
     public Factura consultarPorNumero(String numero) {
-        if (numero == null || numero.isBlank()) {
-            throw new RuntimeException("No encontrada");
-        }
-        for (Factura f : facturasActivas.values()) {
-            if (f.getNumero() != null && f.getNumero().equalsIgnoreCase(numero.trim())) {
-                return f;
-            }
-        }
-        if (facturaDAO != null) {
-            try {
-                Factura f = facturaDAO.buscarPorNumero(numero.trim());
-                if (f != null) {
-                    facturasActivas.put(f.getIdFactura(), f);
-                    return f;
-                }
-            } catch (Exception e) {
-                System.err.println("Advertencia al buscar factura en BD: " + e.getMessage());
-            }
-        }
-        throw new RuntimeException("No encontrada");
+        if (numero == null || numero.isBlank()) throw new IllegalArgumentException("Ingrese el número de factura.");
+        Factura f = facturaDAO.buscarPorNumero(numero.trim());
+        if (f == null) throw new IllegalArgumentException("Factura no encontrada.");
+        activas.put(f.getIdFactura(), f);
+        return f;
     }
 
-    /**
-     * Registra o almacena una factura en el mapa activo de memoria.
-     *
-     * @param factura Factura a almacenar
-     */
-    public void registrarFacturaActiva(Factura factura) {
-        if (factura != null) {
-            facturasActivas.put(factura.getIdFactura(), factura);
-        }
-    }
-
-    private Factura obtenerFactura(long idFactura) {
-        Factura f = facturasActivas.get(idFactura);
-        if (f == null) {
-            throw new IllegalArgumentException("No se encontró la factura con identificador: " + idFactura);
-        }
+    private Factura obtenerFactura(long id) {
+        Factura f = activas.get(id);
+        if (f == null) throw new IllegalArgumentException("Consulte o cargue primero la factura.");
         return f;
     }
 }

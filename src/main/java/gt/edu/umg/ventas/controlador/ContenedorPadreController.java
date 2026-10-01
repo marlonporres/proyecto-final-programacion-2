@@ -1,7 +1,6 @@
 package gt.edu.umg.ventas.controlador;
 
 import gt.edu.umg.ventas.vista.FrmContenedorPadre;
-import gt.edu.umg.ventas.vista.FrmFacturaFiltro;
 import gt.edu.umg.ventas.vista.PantallaFacturacion;
 
 import javax.swing.*;
@@ -22,18 +21,13 @@ public class ContenedorPadreController {
         if (vistaPadre.getItemFacturacion() != null) {
             vistaPadre.getItemFacturacion().addActionListener(e -> abrirVentanaFacturacion());
         }
-        if (vistaPadre.getItemClientes() != null) {
-            vistaPadre.getItemClientes().addActionListener(e -> abrirCatalogoClientes());
-        }
-        if (vistaPadre.getItemProductos() != null) {
-            vistaPadre.getItemProductos().addActionListener(e -> abrirCatalogoProductos());
-        }
     }
 
     public void abrirVentanaFacturacion() {
         for (JInternalFrame frame : vistaPadre.getDesktopPane().getAllFrames()) {
             if (frame instanceof PantallaFacturacion) {
                 try {
+                    frame.setIcon(false);
                     frame.setSelected(true);
                     frame.toFront();
                 } catch (Exception ignored) {}
@@ -50,15 +44,4 @@ public class ContenedorPadreController {
         } catch (Exception ignored) {}
     }
 
-    private void abrirCatalogoClientes() {
-        FrmFacturaFiltro filtro = new FrmFacturaFiltro(vistaPadre, "Catálogo de Clientes");
-        new FacturaFiltroController(filtro, "CLIENTE");
-        filtro.setVisible(true);
-    }
-
-    private void abrirCatalogoProductos() {
-        FrmFacturaFiltro filtro = new FrmFacturaFiltro(vistaPadre, "Catálogo de Productos e Inventario");
-        new FacturaFiltroController(filtro, "PRODUCTO");
-        filtro.setVisible(true);
-    }
 }

@@ -26,8 +26,7 @@ public class SistemaVentas {
             ContenedorPadreController control = new ContenedorPadreController(contenedor);
             contenedor.setVisible(true);
 
-            // Abrir automáticamente la ventana de facturación al inicio
-            control.abrirVentanaFacturacion();
+            // El proceso inicia desde Ventas > Nueva Orden de Venta.
         });
     }
 }
