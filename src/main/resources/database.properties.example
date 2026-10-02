@@ -1,0 +1,3 @@
+db.url=jdbc:sqlserver://localhost:1433;databaseName=SistemaVentas;encrypt=false
+db.user=sa
+db.password=tu_password
