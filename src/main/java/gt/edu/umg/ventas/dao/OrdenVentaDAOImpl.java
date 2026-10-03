@@ -30,6 +30,20 @@ public class OrdenVentaDAOImpl implements OrdenVentaDAO {
         try (Connection conn = ConexionBD.obtenerConexion()) {
             conn.setAutoCommit(false);
             try {
+                // Una ventana puede conservar un producto que otro mantenimiento desactivó.
+                // Verificar el estado persistido y mantenerlo estable hasta guardar la orden.
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT activo FROM dbo.producto WITH (HOLDLOCK) WHERE id_producto=?")) {
+                    for (DetalleOrdenVenta det : o.getDetalles()) {
+                        ps.setLong(1, det.getProducto().getIdProducto());
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (!rs.next() || !rs.getBoolean(1)) {
+                                throw new IllegalStateException("El producto " + det.getProducto().getCodigo()
+                                        + " ya no está activo. Actualice el catálogo antes de guardar.");
+                            }
+                        }
+                    }
+                }
                 try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                     stmt.setString(1, o.getNumeroOrden());
                     stmt.setTimestamp(2, Timestamp.valueOf(o.getFecha()));

@@ -124,6 +124,105 @@ class IntegracionRealDbTest {
         EnsayoInterfaz.ejecutar(cliente, bodega, productos);
     }
 
+    @Test void productoDesactivadoEnOtraVentanaImpideGuardarOrden() throws Exception {
+        // Conserva un objeto activo, como una línea ya seleccionada en la interfaz.
+        Producto editado = new ProductoDAOImpl().buscarPorId(productos.get(1).getIdProducto());
+        editado.setActivo(false); new ProductoDAOImpl().actualizar(editado);
+        assertTrue(productos.get(1).isActivo());
+        assertThrows(RuntimeException.class, () -> crearOrden(5));
+        assertEquals(0, contar("SELECT COUNT(*) FROM dbo.OrdenVenta WHERE id_cliente=?", (int)cliente.getIdCliente()));
+        assertEquals(20, stock(productos.get(0))); assertEquals(20, stock(productos.get(1)));
+    }
+
+    @Test void daoInventarioRecuperaRelacionesYPropagaErrores() {
+        ExistenciaInventarioDAO existencias = new ExistenciaInventarioDAOImpl();
+        ExistenciaInventario e = existencias.obtener(inventario.consultarExistencia(productos.get(0), bodega).getId());
+        assertEquals(productos.get(0).getCodigo(), e.getProducto().getCodigo());
+        assertEquals(categoria.getIdCategoria(), e.getProducto().getCategoria().getIdCategoria());
+        assertEquals(bodega.getNombre(), e.getBodega().getNombre());
+        assertEquals(20, e.getExistenciaDisponible());
+        assertEquals(2, existencias.obtenerTodos().stream().filter(x -> x.getBodega().getId().equals(bodega.getId())).count());
+        ExistenciaInventario duplicada = new ExistenciaInventario();
+        duplicada.setProducto(productos.get(0)); duplicada.setBodega(bodega); duplicada.setExistenciaActual(1);
+        assertThrows(IllegalStateException.class, () -> existencias.crear(duplicada));
+        assertNull(duplicada.getId()); assertEquals(20, stock(productos.get(0)));
+
+        MovimientoInventarioDAO movimientos = new MovimientoInventarioDAOImpl();
+        MovimientoInventario m = movimientos.obtenerTodos().stream()
+                .filter(x -> x.getBodega().getId().equals(bodega.getId())).findFirst().orElseThrow();
+        MovimientoInventario recuperado = movimientos.obtener(m.getId());
+        assertEquals(categoria.getIdCategoria(), recuperado.getProducto().getCategoria().getIdCategoria());
+        assertEquals(bodega.getNombre(), recuperado.getBodega().getNombre());
+        assertEquals(TipoMovimientoInventario.ENTRADA, recuperado.getTipo());
+        assertThrows(UnsupportedOperationException.class, () -> movimientos.actualizar(recuperado));
+        assertThrows(UnsupportedOperationException.class, () -> movimientos.eliminar(recuperado.getId()));
+        Producto inexistente = new Producto(); inexistente.setIdProducto(Long.MAX_VALUE);
+        MovimientoInventario invalido = new MovimientoInventario();
+        invalido.setProducto(inexistente); invalido.setBodega(bodega); invalido.setTipo(TipoMovimientoInventario.ENTRADA);
+        invalido.setCantidad(1); invalido.setFecha(LocalDateTime.now()); invalido.setReferencia("IT FK inválida");
+        assertThrows(IllegalStateException.class, () -> movimientos.crear(invalido));
+        assertNull(invalido.getId());
+    }
+
+    @Test void entradaRechazaProductoDesactivadoDespuesDeSeleccionarlo() throws Exception {
+        Producto seleccionado = productos.get(0);
+        Producto editado = new ProductoDAOImpl().buscarPorId(seleccionado.getIdProducto());
+        editado.setActivo(false);
+        new ProductoDAOImpl().actualizar(editado);
+        assertTrue(seleccionado.isActivo());
+        assertThrows(IllegalStateException.class,
+                () -> inventario.registrarEntrada(seleccionado, bodega, 5, "Entrada IT rechazada"));
+        assertEquals(20, stock(seleccionado));
+        assertEquals(2, contar("SELECT COUNT(*) FROM dbo.MovimientoInventario WHERE id_bodega=?", bodega.getId()));
+    }
+
+    @Test void entradaRechazaBodegaDesactivadaDespuesDeSeleccionarla() throws Exception {
+        new BodegaDAOImpl().eliminar(bodega.getId());
+        assertTrue(bodega.isActiva());
+        assertThrows(IllegalStateException.class,
+                () -> inventario.registrarEntrada(productos.get(0), bodega, 5, "Entrada IT rechazada"));
+        assertEquals(20, stock(productos.get(0)));
+        assertEquals(2, contar("SELECT COUNT(*) FROM dbo.MovimientoInventario WHERE id_bodega=?", bodega.getId()));
+    }
+
+    @Test void recuperaOperacionEnUnProcesoJavaIndependiente() throws Exception {
+        OrdenVenta o = crearOrden(5); generarConfirmar(o);
+        FacturaService servicio = new FacturaService();
+        Factura f = servicio.emitir(servicio.crearDesdeOrden(o.getId(), usuario).getIdFactura());
+        java.nio.file.Path salida = java.nio.file.Path.of("target", "persistencia-jvm.txt");
+        String ejecutableJava = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java.exe").toString();
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Process proceso = new ProcessBuilder(ejecutableJava, "-cp", classpath, ConsultaPersistencia.class.getName(),
+                String.valueOf(o.getId()), f.getNumero()).redirectErrorStream(true).redirectOutput(salida.toFile()).start();
+        try {
+            assertTrue(proceso.waitFor(45, TimeUnit.SECONDS), "La recuperación en una JVM nueva excedió el tiempo.");
+            String evidencia = java.nio.file.Files.readString(salida);
+            assertEquals(0, proceso.exitValue(), evidencia);
+            assertTrue(evidencia.contains("PERSISTENCIA_OK"), evidencia);
+        } finally { if (proceso.isAlive()) proceso.destroyForcibly(); }
+        assertEquals(15, stock(productos.get(0)));
+    }
+
+    @Test void filtroFechasIncluyeDiaCompletoYExcluyeDiasAdyacentes() throws Exception {
+        LocalDateTime dia = LocalDateTime.of(2026,10,3,0,0);
+        List<OrdenVenta> ordenes = new ArrayList<>();
+        List<LocalDateTime> fechas = List.of(dia, dia.plusDays(1).minusNanos(100), dia.minusNanos(100), dia.plusDays(1));
+        for (LocalDateTime fecha : fechas) {
+            OrdenVenta o = crearOrden(1); ordenes.add(o);
+            try (Connection con = ConexionBD.obtenerConexion(); PreparedStatement ps = con.prepareStatement(
+                    "UPDATE dbo.OrdenVenta SET fecha=? WHERE id=?")) {
+                ps.setTimestamp(1, Timestamp.valueOf(fecha)); ps.setInt(2, o.getId()); ps.executeUpdate();
+            }
+        }
+        Set<Integer> ids = new HashSet<>();
+        ordenes.forEach(o -> ids.add(o.getId()));
+        Set<Integer> encontrados = new HashSet<>();
+        new OrdenVentaService().buscarPorFecha(dia, dia).stream().filter(o -> ids.contains(o.getId()))
+                .forEach(o -> encontrados.add(o.getId()));
+        assertEquals(Set.of(ordenes.get(0).getId(), ordenes.get(1).getId()), encontrados);
+        assertEquals(20, stock(productos.get(0)));
+    }
+
     @Test void stockInsuficienteRevierteTodasLasLineas() throws Exception {
         OrdenVenta o = crearOrden(5);
         Despacho pendiente = prepararDespacho(o); new DespachoService().generarDespacho(pendiente);

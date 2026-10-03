@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
+import java.text.ParseException;
+import java.util.Objects;
 
 public class FrmConsultaOrdenesVenta extends JInternalFrame {
     private JSpinner spinDesde;
@@ -24,8 +26,12 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
     private List<OrdenVentaResumen> resultados = List.of();
 
     public FrmConsultaOrdenesVenta() {
+        this(new ConsultaOrdenVentaController());
+    }
+
+    public FrmConsultaOrdenesVenta(ConsultaOrdenVentaController controller) {
         super("Consulta de Ordenes de Venta", true, true, true, true);
-        controller = new ConsultaOrdenVentaController();
+        this.controller = Objects.requireNonNull(controller);
         
         setSize(850, 450);
         
@@ -35,8 +41,10 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
         spinHasta = new JSpinner(new SpinnerDateModel());
         
         JSpinner.DateEditor deDesde = new JSpinner.DateEditor(spinDesde, "dd/MM/yyyy");
+        deDesde.getFormat().setLenient(false);
         spinDesde.setEditor(deDesde);
         JSpinner.DateEditor deHasta = new JSpinner.DateEditor(spinHasta, "dd/MM/yyyy");
+        deHasta.getFormat().setLenient(false);
         spinHasta.setEditor(deHasta);
         
         btnBuscar = new JButton("Buscar");
@@ -70,13 +78,16 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
     }
 
     public void buscar() {
-        Date dDesde = (Date) spinDesde.getValue();
-        Date dHasta = (Date) spinHasta.getValue();
-        
-        LocalDateTime desde = dDesde.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
-        LocalDateTime hasta = dHasta.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
-        
+        resultados = List.of();
+        tableModel.setRowCount(0);
         try {
+            // Incluye la fecha escrita, aunque el usuario aún no haya salido del campo.
+            spinDesde.commitEdit();
+            spinHasta.commitEdit();
+            Date dDesde = (Date) spinDesde.getValue();
+            Date dHasta = (Date) spinHasta.getValue();
+            LocalDateTime desde = dDesde.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+            LocalDateTime hasta = dHasta.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
             resultados = controller.buscar(desde.toLocalDate().atStartOfDay(), hasta.toLocalDate().atStartOfDay());
             tableModel.setRowCount(0);
             for (OrdenVentaResumen r : resultados) {
@@ -95,6 +106,9 @@ public class FrmConsultaOrdenesVenta extends JInternalFrame {
             if(resultados.isEmpty()){
                 Dialogos.showMessageDialog(this, "No se encontraron resultados en las fechas dadas.");
             }
+        } catch (ParseException ex) {
+            Dialogos.showMessageDialog(this, "Ingrese fechas válidas en formato dd/MM/aaaa.",
+                    "Fechas inválidas", JOptionPane.WARNING_MESSAGE);
         } catch (Exception ex) {
             Dialogos.showMessageDialog(this, ex.getMessage(), "Error de validacion", JOptionPane.ERROR_MESSAGE);
         }

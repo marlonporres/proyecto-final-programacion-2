@@ -70,7 +70,8 @@ public class InventarioService {
     }
 
     public void registrarEntrada(Producto producto, Bodega bodega, int cantidad, String referencia) throws Exception {
-        if (producto == null || bodega == null || !producto.isActivo() || !bodega.isActiva()
+        if (producto == null || producto.getIdProducto() <= 0 || bodega == null
+                || bodega.getId() == null || bodega.getId() <= 0 || !producto.isActivo() || !bodega.isActiva()
                 || referencia == null || referencia.isBlank()) {
             throw new IllegalArgumentException("Seleccione producto y bodega activos e indique una referencia.");
         }
@@ -85,6 +86,20 @@ public class InventarioService {
         try (Connection conn = ConexionBD.obtenerConexion()) {
             conn.setAutoCommit(false);
             try {
+                // La seleccion en pantalla puede quedar desactualizada por otro mantenimiento.
+                // Conserva ambos estados hasta confirmar existencia y movimiento juntos.
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT p.id_producto FROM dbo.producto p WITH (HOLDLOCK) "
+                        + "JOIN dbo.Bodega b WITH (HOLDLOCK) ON b.id=? "
+                        + "WHERE p.id_producto=? AND p.activo=1 AND b.activa=1")) {
+                    stmt.setInt(1, bodega.getId());
+                    stmt.setLong(2, producto.getIdProducto());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new IllegalStateException("El producto o la bodega ya no está activo. Actualice el catálogo.");
+                        }
+                    }
+                }
                 ExistenciaInventario ex = consultarExistencia(producto, bodega, conn);
                 if (ex != null) {
                     try (PreparedStatement stmt = conn.prepareStatement(updateExistencia)) {

@@ -48,6 +48,8 @@ Ejemplo monetario con TEC-001: 5 × Q95.00 = Q475.00; IVA Q57.00; total Q532.00.
 
 ## Checklist de los cinco puntos
 
+La matriz detallada contra el PDF «Entrega Final del Proyecto de escritorio - Programación II», revisado el 2 de octubre, está en `alineacion_rubrica.md`. La suite actual ejecuta 50 pruebas, incluidas 14 de SQL Server y recuperación de la operación desde otro proceso Java.
+
 | Criterio | Evidencia a mostrar |
 |---|---|
 | Modelo y BD — 0.75 | PK/FK/UNIQUE, tablas de encabezado/detalle y registros de la venta nueva. |

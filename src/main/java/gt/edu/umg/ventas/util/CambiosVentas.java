@@ -11,7 +11,7 @@ public final class CambiosVentas {
         if (escritorio == null) return;
         for (JInternalFrame frame : escritorio.getAllFrames()) {
             if (frame == origen) continue;
-            if (frame instanceof FrmInventario inventario) inventario.consultarInventario();
+            if (frame instanceof FrmInventario inventario) inventario.refrescarInventario();
             if (frame instanceof FrmDespacho despacho) despacho.cargarDatosIniciales();
             if (frame instanceof FrmConsultaOrdenesVenta consulta) consulta.buscar();
         }

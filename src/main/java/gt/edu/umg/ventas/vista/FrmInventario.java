@@ -9,6 +9,9 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.List;
+import javax.swing.event.InternalFrameAdapter;
+import javax.swing.event.InternalFrameEvent;
+import gt.edu.umg.ventas.modelo.Producto;
 
 public class FrmInventario extends JInternalFrame {
 
@@ -44,6 +47,9 @@ public class FrmInventario extends JInternalFrame {
         initComponents();
         cargarBodegas();
         consultarInventario();
+        addInternalFrameListener(new InternalFrameAdapter() {
+            @Override public void internalFrameActivated(InternalFrameEvent e) { refrescarInventario(); }
+        });
     }
 
     private void initComponents() {
@@ -69,7 +75,7 @@ public class FrmInventario extends JInternalFrame {
         btnRefrescar.addActionListener(e -> {
             txtFiltroProducto.setText("");
             cmbBodega.setSelectedIndex(0);
-            consultarInventario();
+            refrescarInventario();
         });
         pnlNorte.add(btnRefrescar);
         JButton entrada = new JButton("Registrar entrada");
@@ -90,17 +96,25 @@ public class FrmInventario extends JInternalFrame {
     }
 
     private void cargarBodegas() {
+        BodegaItem anterior = (BodegaItem) cmbBodega.getSelectedItem();
+        Integer idAnterior = anterior == null || anterior.getBodega() == null ? null : anterior.getBodega().getId();
         try {
             cmbBodega.removeAllItems();
             cmbBodega.addItem(new BodegaItem(null)); // Opción Todas
             List<Bodega> bodegas = controller.obtenerBodegas();
             for (Bodega b : bodegas) {
                 cmbBodega.addItem(new BodegaItem(b));
+                if (b.getId().equals(idAnterior)) cmbBodega.setSelectedIndex(cmbBodega.getItemCount() - 1);
             }
         } catch (Exception e) {
             Dialogos.showMessageDialog(this, "Error al cargar bodegas: " + e.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    public void refrescarInventario() {
+        cargarBodegas();
+        consultarInventario();
     }
 
     public void consultarInventario() {
@@ -123,23 +137,22 @@ public class FrmInventario extends JInternalFrame {
                 });
             }
         } catch (Exception ex) {
+            modeloTabla.setRowCount(0);
             Dialogos.showMessageDialog(this, "Error al consultar inventario: " + ex.getMessage(),
                     "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
     private void registrarEntrada() {
         try {
-            JComboBox<gt.edu.umg.ventas.modelo.Producto> productos = new JComboBox<>(new gt.edu.umg.ventas.dao.ProductoDAOImpl()
-                    .listar().stream().filter(gt.edu.umg.ventas.modelo.Producto::isActivo).toArray(gt.edu.umg.ventas.modelo.Producto[]::new));
-            JComboBox<Bodega> bodegas = new JComboBox<>(new gt.edu.umg.ventas.dao.BodegaDAOImpl()
-                    .obtenerTodos().stream().filter(Bodega::isActiva).toArray(Bodega[]::new));
+            JComboBox<Producto> productos = new JComboBox<>(controller.obtenerProductosActivos().toArray(Producto[]::new));
+            JComboBox<Bodega> bodegas = new JComboBox<>(controller.obtenerBodegasActivas().toArray(Bodega[]::new));
             JTextField cantidad = new JTextField("1"), referencia = new JTextField();
             JPanel panel = new JPanel(new GridLayout(0, 2, 8, 8));
             panel.add(new JLabel("Producto")); panel.add(productos); panel.add(new JLabel("Bodega")); panel.add(bodegas);
             panel.add(new JLabel("Cantidad entera")); panel.add(cantidad); panel.add(new JLabel("Referencia")); panel.add(referencia);
             if (Dialogos.showConfirmDialog(this, panel, "Entrada de inventario", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
-            new gt.edu.umg.ventas.servicio.InventarioService().registrarEntrada(
-                    (gt.edu.umg.ventas.modelo.Producto) productos.getSelectedItem(), (Bodega) bodegas.getSelectedItem(),
+            controller.registrarEntrada(
+                    (Producto) productos.getSelectedItem(), (Bodega) bodegas.getSelectedItem(),
                     Integer.parseInt(cantidad.getText().trim()), referencia.getText().trim());
             consultarInventario();
             gt.edu.umg.ventas.util.CambiosVentas.notificar(this);

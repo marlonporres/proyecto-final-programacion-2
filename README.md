@@ -10,7 +10,7 @@ Generar el despacho guarda encabezado y detalles en estado PENDIENTE, con cero u
 
 ## Requisitos e instalación
 
-- JDK 25 y Maven 3.9 o el Maven incluido en esta carpeta.
+- JDK 25 y Maven 3.9+. Una clonación de GitHub no incluye los JAR de Maven: instale Maven y agregue su carpeta `bin` al `PATH`, o extraiga la distribución completa 3.9.9 en `apache-maven-3.9.9`.
 - SQL Server con el servicio iniciado, conexión TCP a localhost:1433 y autenticación SQL configurada.
 - Una base limpia denominada SistemaVentas.
 
@@ -34,20 +34,36 @@ Este archivo está excluido de Git. La configuración se carga desde el classpat
 
 ## Compilación y ejecución
 
-Desde la raíz, en PowerShell:
+Desde la raíz, en PowerShell con Maven instalado en el `PATH`:
 
 ```powershell
-.\apache-maven-3.9.9\bin\mvn.cmd clean test
-.\apache-maven-3.9.9\bin\mvn.cmd exec:java
+mvn clean test
+mvn exec:java
 ```
 
-Si Maven resuelve una carpeta local incorrecta, indique la ubicación de sus dependencias:
+Si extrajo Maven dentro del proyecto, sustituya `mvn` por `.\apache-maven-3.9.9\bin\mvn.cmd`. Si Maven resuelve una carpeta local incorrecta, indique la ubicación de sus dependencias:
 
 ```powershell
-.\apache-maven-3.9.9\bin\mvn.cmd '-Dmaven.repo.local=C:\Users\marlo\.m2\repository' test
+mvn '-Dmaven.repo.local=C:\Users\marlo\.m2\repository' test
 ```
 
 NetBeans reconoce `pom.xml` y ejecuta `gt.edu.umg.ventas.SistemaVentas`. Los generadores Python históricos no forman parte del proceso de construcción; no los ejecute sobre los formularios implementados.
+
+Para la demostración, el comando siguiente revisa Java, la configuración y el servicio SQL Server, compila desde cero y ejecuta todas las pruebas:
+
+```powershell
+.\scripts\demostracion.cmd -Modo Verificar
+```
+
+Para abrir el sistema:
+
+```powershell
+.\scripts\demostracion.cmd
+```
+
+El lanzador `.cmd` ejecuta `demostracion.ps1` con una política limitada a ese proceso; no cambia la política de ejecución de Windows. Utiliza Maven local si está completo o `mvn.cmd` del `PATH`. Comprueba el Java de `JAVA_HOME` cuando está configurado, igual que Maven.
+
+El script utiliza las dependencias ya descargadas, sin necesitar Internet. En una computadora nueva, añada `-EnLinea` para permitir que Maven descargue las dependencias. Si Maven resuelve una carpeta incorrecta, use `-RepositorioLocal 'C:\Users\marlo\.m2\repository'`, adaptando la ruta a su usuario. La matriz contra el documento del ingeniero está en `docs/alineacion_rubrica.md`.
 
 ## Uso
 
@@ -80,19 +96,23 @@ ExistenciaInventario es la única fuente de stock físico por producto y bodega.
 
 ## Pruebas
 
-`mvn test` ejecuta las pruebas unitarias y omite explícitamente las ocho pruebas de SQL Server. Para comprobar integración, primero instale el esquema y configure la conexión; después ejecute:
+`mvn test` ejecuta 36 pruebas sin SQL y omite explícitamente las 14 pruebas de SQL Server. Para comprobar las 50 pruebas, primero instale el esquema y configure la conexión; después ejecute:
 
 ```powershell
-.\apache-maven-3.9.9\bin\mvn.cmd '-Dventas.it=true' test
+mvn '-Dventas.it=true' test
 ```
 
 Con ventas.it=true, una base inaccesible hace fallar la suite; no se presenta como una integración exitosa con cero pruebas. Cada caso crea sus propios clientes, categorías, productos y bodegas y limpia únicamente esos datos al terminar.
 
 Los casos cubren persistencia hasta factura, consulta tras reinicio, precios históricos, stock insuficiente con rollback, despacho parcial y repetido, factura duplicada, error de FK al emitir y confirmaciones concurrentes.
 
+También se comprueban las fechas escritas sin salir del campo, días inexistentes, límites inclusivos del rango de fechas, errores de DAO, relaciones completas de inventario y productos desactivados después de seleccionar una línea. Las entradas vuelven a validar producto y bodega en SQL Server dentro de la transacción, rechazando selecciones que otro mantenimiento desactivó sin alterar stock ni movimientos. Una prueba lanza otro proceso Java para recuperar la orden, despacho y factura desde SQL Server, sin compartir el caché de la JVM original.
+
 El ensayo Swing acciona los menús y botones reales con datos propios: cliente, inventario, orden, generación y recuperación del despacho pendiente, confirmación, factura, consulta de trazabilidad y recuperación con un controlador nuevo. Los diálogos reciben respuestas de prueba; la aplicación normal conserva JOptionPane. No es una certificación del dominio del grupo ni un ensayo manual humano.
 
 La demostración manual y las preguntas para preparar la defensa están en `docs/guion_entrega.md`. Las consultas de comprobación de solo lectura están en `docs/verificar_operacion.sql`.
+
+`docs/verificar_integridad.sql` comprueba restricciones, stock, estados, detalles y salidas relacionadas; no modifica registros.
 
 La guía individual, preguntas con respuestas y checklist de la rúbrica están en `docs/defensa_proyecto.md`.
 
