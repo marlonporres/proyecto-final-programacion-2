@@ -1,123 +1,145 @@
-# Sistema de Ventas de Programación II
+# Sistema de Ventas — Proyecto Final de Programación II
 
-Aplicación de escritorio en Java Swing y SQL Server para demostrar el proceso completo de ventas. El flujo es:
+Aplicación de escritorio para una tienda de productos de computación, desarrollada con **Java Swing, JDBC y SQL Server**. Integra catálogos, inventario por bodega, órdenes de venta, despachos, facturación y consulta de la operación completa.
 
-Cliente → Orden de venta → Despacho pendiente → Despacho confirmado → Salida de inventario → Factura
+## Entrega y documento de defensa
 
-La orden valida existencias, pero no las modifica. Al confirmar el despacho se rebajan las cantidades y se registra la salida dentro de la misma transacción. La factura es el documento comercial posterior y nunca modifica inventario.
+<!-- Sustituya el destino del enlace siguiente por la URL completa del Google Doc de defensa. Compruebe que el ingeniero tenga permiso de lectura. -->
+### [Abrir el documento de defensa y explicación del proyecto](REEMPLAZAR_CON_ENLACE_DE_GOOGLE_DOCS)
 
-Generar el despacho guarda encabezado y detalles en estado PENDIENTE, con cero unidades despachadas, y no mueve ni reserva stock. Puede cerrarse la ventana y recuperarse el mismo despacho para confirmarlo después.
+El documento de defensa complementa el código con la explicación del proyecto y las ayudas para la exposición. Este repositorio reúne la implementación, el instalador de la base de datos, las pruebas y la documentación técnica.
 
-## Requisitos e instalación
+**Repositorio:** [marlonporres/proyecto-final-programacion-2](https://github.com/marlonporres/proyecto-final-programacion-2).
 
-- JDK 25 y Maven 3.9+. Una clonación de GitHub no incluye los JAR de Maven: instale Maven y agregue su carpeta `bin` al `PATH`, o extraiga la distribución completa 3.9.9 en `apache-maven-3.9.9`.
-- SQL Server con el servicio iniciado, conexión TCP a localhost:1433 y autenticación SQL configurada.
-- Una base limpia denominada SistemaVentas.
+| Material | Contenido |
+| --- | --- |
+| [Guía de defensa local](docs/defensa_proyecto.md) | Explicación por integrante, preguntas y respuestas para la exposición. |
+| [Alineación con la rúbrica](docs/alineacion_rubrica.md) | Correspondencia entre los criterios del ingeniero y la implementación. |
+| [Guion de demostración](docs/guion_entrega.md) | Recorrido práctico para presentar el sistema. |
+| [Registro de verificación](docs/verificacion_implementacion.md) | Resultados de pruebas, revisiones y evidencias técnicas. |
+| [Catálogo de computación](docs/catalogo_computacion.md) | Productos ficticios, categorías y precios de referencia. |
 
-En SQL Server Management Studio, ejecute `script_base_datos_ventas.sql`. El script instala tablas, relaciones, restricciones e índices y carga un usuario admin, un cliente CF y 24 productos ficticios de computación en seis categorías. Bodega Central incluye existencias iniciales de 6 a 40 unidades según el producto; TEC-001 empieza con 20.
+## Funcionamiento y reglas principales
 
-Si la base ya tiene el esquema actualizado, agregue el catálogo con `docs/cargar_catalogo_computacion.sql`, sin recrearla. Esta carga conserva ventas, precios y existencias anteriores y puede repetirse sin duplicar ni reponer stock. El detalle de productos y precios está en `docs/catalogo_computacion.md`.
+**Cliente → Orden de venta → Despacho pendiente → Despacho confirmado → Factura**
 
-Si instaló el esquema antes de separar generación y confirmación, ejecute una vez `docs/actualizar_despacho_pendiente.sql`. Actualiza únicamente la restricción de cantidades, sin borrar ventas, productos, stock ni despachos confirmados. Las instalaciones nuevas ya incluyen ese cambio.
+| Acción | Efecto sobre el inventario físico |
+| --- | --- |
+| Registrar entrada | Aumenta existencias y registra un movimiento ENTRADA. |
+| Guardar una orden | Valida disponibilidad; no descuenta ni reserva existencias. |
+| Generar un despacho | Guarda el despacho PENDIENTE con cero unidades entregadas; no cambia existencias. |
+| Confirmar un despacho | Descuenta todas las cantidades y registra movimientos SALIDA en una misma transacción. |
+| Emitir, pagar o anular una factura | No modifica existencias. |
 
-Si conserva el esquema anterior y decidió recrear los datos de prueba, ejecute primero `docs/recrear_base_pruebas.sql`. Ese script borra exclusivamente la base SistemaVentas y sus datos; después debe ejecutar el instalador. El instalador no migra registros anteriores ni elimina automáticamente una base existente.
+- Cada orden se despacha completamente desde una sola bodega. Si falla una línea, se revierte toda la confirmación y el despacho permanece pendiente.
+- Los precios se conservan en el detalle de la orden: cambiar el catálogo no altera una venta anterior.
+- Se utilizan cantidades enteras, `BigDecimal`, IVA académico del 12% y redondeo `HALF_UP` a dos decimales. Los precios son antes de IVA; no se aplican descuentos.
+- Una orden admite una sola factura, incluso si se anula. Los pagos se registran después de emitirla y pasa a PAGADA cuando cubren su total. Anular no implica devolver mercadería.
+- Los números de orden, despacho y factura utilizan UUID. Las operaciones persistidas se recuperan desde SQL Server al reiniciar.
 
-Cree `src/main/resources/database.properties` a partir de su archivo de ejemplo y configure sus credenciales locales:
+## Requisitos
+
+- **JDK 25** o superior, con `JAVA_HOME` apuntando al JDK que utilizará Maven.
+- **Maven 3.9+**, disponible en el `PATH`. Como alternativa, extraer la distribución completa de Maven 3.9.9 en `apache-maven-3.9.9`; una clonación no incluye sus JAR.
+- **SQL Server** iniciado, conexión TCP a `localhost:1433` y autenticación SQL habilitada. El lanzador comprueba el servicio de la instancia predeterminada `MSSQLSERVER`.
+- **SQL Server Management Studio** u otra herramienta para ejecutar los scripts SQL.
+
+Las dependencias de FlatLaf, JDBC y JUnit se resuelven mediante [pom.xml](pom.xml). NetBeans puede abrir el proyecto directamente desde ese archivo.
+
+## Preparación de la base de datos
+
+### Instalación nueva
+
+1. En SQL Server, ejecutar [script_base_datos_ventas.sql](script_base_datos_ventas.sql). Crea `SistemaVentas`, sus 14 tablas, relaciones, restricciones e índices; incluye un usuario académico admin, un cliente CF y 24 productos ficticios de computación en seis categorías.
+2. Copiar [database.properties.example](src/main/resources/database.properties.example) como `src/main/resources/database.properties`.
+3. Completar los datos de conexión locales:
 
 ```properties
 db.url=jdbc:sqlserver://localhost:1433;databaseName=SistemaVentas;encrypt=false
-db.user=sa
+db.user=su_usuario_sql
 db.password=su_clave_local
 ```
 
-Este archivo está excluido de Git. La configuración se carga desde el classpath; no se usan contraseñas embebidas ni variables DB_HOST/DB_PASSWORD. Al cambiar el archivo, reinicie la aplicación. La sesión académica utiliza el usuario admin de la base; no implementa autenticación interactiva.
+`database.properties` está excluido de Git: **no publicar credenciales**. La configuración se carga desde el classpath; después de cambiarla, recompilar y reiniciar. La sesión utiliza el usuario admin de la base; no existe una pantalla de inicio de sesión.
 
-## Compilación y ejecución
+### Si ya existe una base
 
-Desde la raíz, en PowerShell con Maven instalado en el `PATH`:
+- Para añadir los productos al esquema actualizado, usar [cargar_catalogo_computacion.sql](docs/cargar_catalogo_computacion.sql). Conserva ventas, precios y existencias existentes; repetirlo no duplica productos ni repone stock.
+- Si el esquema fue instalado antes de separar generación y confirmación del despacho, aplicar [actualizar_despacho_pendiente.sql](docs/actualizar_despacho_pendiente.sql). Ajusta la restricción de cantidades sin borrar registros; las instalaciones nuevas ya incluyen el cambio.
+- **No recrear una base con datos que se necesiten conservar.** [recrear_base_pruebas.sql](docs/recrear_base_pruebas.sql) elimina `SistemaVentas` y sus datos. Usarlo únicamente para un reinicio deliberado, con respaldo; después ejecutar el instalador. El instalador no migra automáticamente un esquema antiguo.
 
-```powershell
-mvn clean test
-mvn exec:java
-```
+## Ejecutar en Windows
 
-Si extrajo Maven dentro del proyecto, sustituya `mvn` por `.\apache-maven-3.9.9\bin\mvn.cmd`. Si Maven resuelve una carpeta local incorrecta, indique la ubicación de sus dependencias:
-
-```powershell
-mvn '-Dmaven.repo.local=C:\Users\marlo\.m2\repository' test
-```
-
-NetBeans reconoce `pom.xml` y ejecuta `gt.edu.umg.ventas.SistemaVentas`. Los generadores Python históricos no forman parte del proceso de construcción; no los ejecute sobre los formularios implementados.
-
-Para la demostración, el comando siguiente revisa Java, la configuración y el servicio SQL Server, compila desde cero y ejecuta todas las pruebas:
+Desde la raíz del proyecto, en PowerShell, con la base instalada y la conexión configurada:
 
 ```powershell
+# Primera ejecución: permite descargar las dependencias de Maven.
+.\scripts\demostracion.cmd -EnLinea
+
+# Ejecuciones posteriores: utiliza las dependencias descargadas, sin Internet.
+.\scripts\demostracion.cmd
+
+# Verificación completa: recompila y ejecuta también las pruebas con SQL Server.
 .\scripts\demostracion.cmd -Modo Verificar
 ```
 
-Para abrir el sistema:
+Si faltan dependencias al verificar, añadir `-EnLinea`. Si Maven utiliza una ubicación incorrecta, añadir `-RepositorioLocal 'C:\ruta\a\su\repositorio-maven'`.
+
+El lanzador comprueba Java, Maven, la configuración y el servicio SQL Server. Ejecuta PowerShell con una política limitada a ese proceso; no modifica la política de Windows. Para ejecutar directamente con Maven:
 
 ```powershell
-.\scripts\demostracion.cmd
+mvn clean test
+mvn compile exec:java
 ```
 
-El lanzador `.cmd` ejecuta `demostracion.ps1` con una política limitada a ese proceso; no cambia la política de ejecución de Windows. Utiliza Maven local si está completo o `mvn.cmd` del `PATH`. Comprueba el Java de `JAVA_HOME` cuando está configurado, igual que Maven.
+La clase principal es `gt.edu.umg.ventas.SistemaVentas`. Los generadores Python históricos no forman parte de la construcción; no ejecutarlos sobre los formularios actuales.
 
-El script utiliza las dependencias ya descargadas, sin necesitar Internet. En una computadora nueva, añada `-EnLinea` para permitir que Maven descargue las dependencias. Si Maven resuelve una carpeta incorrecta, use `-RepositorioLocal 'C:\Users\marlo\.m2\repository'`, adaptando la ruta a su usuario. La matriz contra el documento del ingeniero está en `docs/alineacion_rubrica.md`.
+## Recorrido para la demostración
 
-## Uso
+1. **Catálogos:** registrar o seleccionar un cliente; consultar categorías, productos y bodegas.
+2. **Inventario:** consultar existencias por bodega. Si se necesita abastecer, registrar una entrada con cantidad entera positiva y referencia.
+3. **Ventas → Nueva Orden de Venta:** seleccionar productos activos y cantidades disponibles; guardar la orden PENDIENTE.
+4. **Inventario → Despachos:** seleccionar la orden y una bodega con todas las existencias; generar el despacho PENDIENTE y comprobar que el stock sigue igual. Se puede cerrar la ventana y recuperar el despacho.
+5. **Confirmar despacho:** verificar la orden COMPLETADA, el despacho CONFIRMADO y los movimientos SALIDA. La bodega queda fijada desde la generación.
+6. **Ventas → Facturación de órdenes despachadas:** cargar la orden y emitir la factura; cliente, productos, cantidades y precios provienen de la orden y no son editables.
+7. **Ventas → Consultar Órdenes de Venta:** filtrar por fechas y abrir **Ver operación** para revisar orden, despacho, movimientos y factura.
+8. Reiniciar la aplicación y recuperar la operación para demostrar persistencia.
 
-1. Registre o seleccione un cliente en Catálogos. También puede crear y actualizar categorías y productos. Los catálogos de una nueva orden se recargan al activar su ventana.
-2. Consulte inventario por bodega. Para abastecer un producto nuevo, use Registrar entrada con una cantidad entera positiva y una referencia.
-3. En Ventas > Nueva Orden de Venta, seleccione productos activos y cantidades disponibles. Guardar confirma la solicitud y la deja PENDIENTE, lista para despacho. Se conserva el precio unitario de ese momento.
-4. En Inventario > Despachos, seleccione la orden y una bodega activa que disponga de todas las cantidades. Pulse Generar orden de despacho: se guarda PENDIENTE y el stock no cambia. Esta entrega admite un único despacho completo; no distribuye una orden entre varias bodegas. La bodega queda fijada al generarlo.
-5. Pulse Confirmar despacho. La orden pasa a COMPLETADA; el despacho pasa a CONFIRMADO, se actualizan sus cantidades entregadas y se rebaja stock con un movimiento SALIDA por producto. Si una línea falla, se revierte toda la confirmación y el despacho sigue PENDIENTE, disponible para reintentar después de abastecer.
-6. En Ventas > Facturación de órdenes despachadas, cargue una orden de la lista y emita el documento. Cliente, productos, cantidades y precios provienen de la orden y no son editables.
-7. En Ventas > Consultar Órdenes de Venta, busque por fechas y use Ver operación para comprobar productos, despacho, movimiento y factura. Las consultas abiertas se actualizan después de guardar operaciones.
+Usar las existencias que muestre la base al iniciar, no asumir que siguen iguales a las de instalación. Si hay `S` unidades y se despachan 5, deben quedar `S − 5`; emitir la factura mantiene ese resultado.
 
-Orden y factura usan cantidades enteras, BigDecimal, IVA académico de 12% y redondeo HALF_UP a dos decimales. El precio es el valor antes del IVA. No se ofrecen descuentos en este flujo. Los números OV, DSP y FAC utilizan UUID para evitar colisiones entre sesiones.
+## Arquitectura
 
-Existe una factura por orden, incluso si el documento se anula. Los pagos se admiten después de emitir; el estado pasa a PAGADA cuando cubren el total. Anular cancela solo el documento comercial y no representa devolución de mercadería.
+Los paquetes se encuentran bajo `src/main/java/gt/edu/umg/ventas`:
 
-## Arquitectura y persistencia
+| Paquete | Responsabilidad |
+| --- | --- |
+| `vista` | Formularios Swing y presentación de resultados. |
+| `controlador` | Coordinación de acciones de la interfaz. |
+| `servicio` | Reglas de negocio y transacciones. |
+| `dao` | Consultas y persistencia mediante JDBC. |
+| `modelo` | Entidades y proyecciones de consulta. |
+| `util` | Sesión, moneda, diálogos y actualización de consultas abiertas. |
 
-Los paquetes están bajo `gt.edu.umg.ventas`:
+`ExistenciaInventario` es la fuente del stock físico por producto y bodega; `MovimientoInventario` registra entradas y salidas. Inventario y despacho utilizan una conexión compartida durante cada transacción. La factura vuelve a validar la orden al persistir; las restricciones de la base respaldan los controles contra duplicados. Las entradas también revalidan producto y bodega en la transacción para rechazar selecciones desactivadas después de abrir el formulario.
 
-- `vista`: formularios Swing y representación de resultados.
-- `controlador`: coordinación de acciones de la interfaz.
-- `servicio`: reglas de órdenes, inventario, despacho y factura.
-- `dao`: consultas y persistencia JDBC.
-- `modelo`: entidades y proyecciones de consulta.
-- `util`: sesión, moneda y actualización de consultas abiertas.
+## Pruebas y evidencia
 
-Los servicios de inventario y despacho comparten una conexión JDBC durante la transacción. La factura bloquea la orden al persistir y comprueba otra vez que esté despachada y no tenga factura. Las restricciones UNIQUE de la base respaldan los controles contra operaciones duplicadas.
-
-ExistenciaInventario es la única fuente de stock físico por producto y bodega. La columna reservada está preparada para futuras reservas y permanece en cero en este alcance. MovimientoInventario registra entradas y salidas; las salidas referencian el número único del despacho. Los borradores de factura son temporales en memoria; las facturas emitidas, pagos y relaciones quedan en SQL Server y se recuperan al reiniciar.
-
-## Pruebas
-
-`mvn test` ejecuta 36 pruebas sin SQL y omite explícitamente las 14 pruebas de SQL Server. Para comprobar las 50 pruebas, primero instale el esquema y configure la conexión; después ejecute:
+La **última verificación documentada, del 3 de octubre de 2026**, registró **50 pruebas exitosas: 36 sin SQL Server y 14 de integración**, sin errores ni omisiones en la ejecución completa. Consultar el [registro de verificación](docs/verificacion_implementacion.md) para los comandos y resultados de esa revisión.
 
 ```powershell
-mvn '-Dventas.it=true' test
+# Pruebas sin SQL Server; las 14 de integración se omiten explícitamente.
+mvn clean test
+
+# Suite completa: requiere SQL Server, esquema y conexión configurados.
+mvn '-Dventas.it=true' clean verify
 ```
 
-Con ventas.it=true, una base inaccesible hace fallar la suite; no se presenta como una integración exitosa con cero pruebas. Cada caso crea sus propios clientes, categorías, productos y bodegas y limpia únicamente esos datos al terminar.
+Las pruebas cubren el flujo hasta factura, precios históricos, stock insuficiente y reversión, duplicados, confirmaciones concurrentes, fechas, selecciones desactivadas y recuperación en otro proceso Java. El ensayo Swing acciona menús y botones reales con respuestas de prueba para los diálogos. Las pruebas de integración crean sus propios datos y limpian únicamente esos registros; con integración habilitada, una conexión inaccesible hace fallar la suite.
 
-Los casos cubren persistencia hasta factura, consulta tras reinicio, precios históricos, stock insuficiente con rollback, despacho parcial y repetido, factura duplicada, error de FK al emitir y confirmaciones concurrentes.
+Para revisar la base sin modificar registros: [verificar_operacion.sql](docs/verificar_operacion.sql) y [verificar_integridad.sql](docs/verificar_integridad.sql).
 
-También se comprueban las fechas escritas sin salir del campo, días inexistentes, límites inclusivos del rango de fechas, errores de DAO, relaciones completas de inventario y productos desactivados después de seleccionar una línea. Las entradas vuelven a validar producto y bodega en SQL Server dentro de la transacción, rechazando selecciones que otro mantenimiento desactivó sin alterar stock ni movimientos. Una prueba lanza otro proceso Java para recuperar la orden, despacho y factura desde SQL Server, sin compartir el caché de la JVM original.
+## Alcance académico
 
-El ensayo Swing acciona los menús y botones reales con datos propios: cliente, inventario, orden, generación y recuperación del despacho pendiente, confirmación, factura, consulta de trazabilidad y recuperación con un controlador nuevo. Los diálogos reciben respuestas de prueba; la aplicación normal conserva JOptionPane. No es una certificación del dominio del grupo ni un ensayo manual humano.
+Esta entrega implementa el sistema de escritorio con despachos completos y facturación posterior. Android, API, reservas de stock, entregas parciales entre bodegas y devoluciones físicas quedan fuera del alcance actual. La columna de reservas permanece en cero; los borradores de factura son temporales y las facturas emitidas se guardan en SQL Server.
 
-La demostración manual y las preguntas para preparar la defensa están en `docs/guion_entrega.md`. Las consultas de comprobación de solo lectura están en `docs/verificar_operacion.sql`.
-
-`docs/verificar_integridad.sql` comprueba restricciones, stock, estados, detalles y salidas relacionadas; no modifica registros.
-
-La guía individual, preguntas con respuestas y checklist de la rúbrica están en `docs/defensa_proyecto.md`.
-
-La verificación realizada, los resultados de integración y la ubicación del respaldo previo a la recreación están en `docs/verificacion_implementacion.md`.
-
-## Alcance de esta entrega
-
-Aplicación de escritorio, despachos completos y facturación posterior. Aplicación Android, API, reservas de stock, entregas parciales y devoluciones físicas quedan para una fase posterior.
+La matriz y las pruebas aportan evidencia técnica; la defensa y el dominio del proyecto deben prepararse entre todos los integrantes. Antes de entregar el enlace del repositorio, publicar los cambios en `main`, sustituir el enlace del documento de defensa y comprobar el acceso del ingeniero a ambos recursos.
