@@ -5,7 +5,7 @@ Aplicación de escritorio para una tienda de productos de computación, desarrol
 ## Entrega y documento de defensa
 
 <!-- Sustituya el destino del enlace siguiente por la URL completa del Google Doc de defensa. Compruebe que el ingeniero tenga permiso de lectura. -->
-### [Abrir el documento de defensa y explicación del proyecto](REEMPLAZAR_CON_ENLACE_DE_GOOGLE_DOCS)
+### [Abrir el documento de defensa y explicación del proyecto](https://docs.google.com/document/d/1lGquripMr4y55byKVBEs98gh69SZ7zLL6HuliuXVjfM/edit)
 
 El documento de defensa complementa el código con la explicación del proyecto y las ayudas para la exposición. Este repositorio reúne la implementación, el instalador de la base de datos, las pruebas y la documentación técnica.
 
