@@ -313,4 +313,70 @@ public class OrdenVentaDAOImpl implements OrdenVentaDAO {
         }
         return lista;
     }
+    @Override
+    public OrdenVenta obtenerPorIdParaActualizar(Connection con, int idOrden) {
+        String sql = "SELECT id, numero_orden, fecha, total, estado, observaciones "
+                + "FROM dbo.OrdenVenta WITH (UPDLOCK, HOLDLOCK) WHERE id = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                OrdenVenta o = new OrdenVenta();
+                o.setId(rs.getInt("id"));
+                o.setNumeroOrden(rs.getString("numero_orden"));
+                o.setFecha(rs.getTimestamp("fecha").toLocalDateTime());
+                o.setTotal(rs.getBigDecimal("total"));
+                o.setEstado(EstadoOrdenVenta.valueOf(rs.getString("estado")));
+                o.setObservaciones(rs.getString("observaciones"));
+                cargarDetalles(con, o);
+                return o;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo obtener la orden de venta para actualizar.", e);
+        }
+    }
+
+    @Override
+    public void cambiarEstado(Connection con, int idOrden, EstadoOrdenVenta estado) {
+        String sql = "UPDATE dbo.OrdenVenta SET estado = ? WHERE id = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, estado.name());
+            ps.setInt(2, idOrden);
+            if (ps.executeUpdate() != 1) {
+                throw new IllegalStateException("La orden cambió de estado.");
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo actualizar el estado de la orden.", e);
+        }
+    }
+
+    @Override
+    public List<OperacionLinea> consultarTrazabilidad(int idOrden) {
+        List<OperacionLinea> lineas = new ArrayList<>();
+        String sql = "SELECT o.numero_orden, p.codigo, od.cantidad, dd.cantidad_despachada, od.precio_unitario, b.nombre, "
+                + "d.numero_despacho, m.tipo_movimiento, m.cantidad AS salida, f.numero, f.total "
+                + "FROM dbo.OrdenVenta o JOIN dbo.DetalleOrdenVenta od ON od.id_orden = o.id "
+                + "JOIN dbo.producto p ON p.id_producto = od.id_producto "
+                + "LEFT JOIN dbo.Despacho d ON d.id_orden = o.id LEFT JOIN dbo.Bodega b ON b.id = d.id_bodega "
+                + "LEFT JOIN dbo.DetalleDespacho dd ON dd.id_despacho = d.id AND dd.id_producto = p.id_producto "
+                + "LEFT JOIN dbo.MovimientoInventario m ON m.id_producto = p.id_producto AND m.id_bodega = b.id "
+                + "AND m.referencia = CONCAT('Despacho ', d.numero_despacho) AND m.tipo_movimiento = 'SALIDA' "
+                + "LEFT JOIN dbo.factura f ON f.id_orden = o.id WHERE o.id = ? ORDER BY od.id";
+        try (Connection con = ConexionBD.obtenerConexion(); PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    lineas.add(new OperacionLinea(rs.getString(1), rs.getString(2), rs.getInt(3),
+                            (Integer) rs.getObject(4), rs.getBigDecimal(5), rs.getString(6), rs.getString(7),
+                            rs.getString(8), (Integer) rs.getObject(9), rs.getString(10), rs.getBigDecimal(11)));
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo consultar la operación.", e);
+        }
+        return List.copyOf(lineas);
+    }
 }
+

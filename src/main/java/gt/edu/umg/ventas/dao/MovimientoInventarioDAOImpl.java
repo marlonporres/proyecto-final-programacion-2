@@ -52,6 +52,24 @@ public class MovimientoInventarioDAOImpl implements MovimientoInventarioDAO {
         throw new UnsupportedOperationException("Los movimientos históricos no se pueden eliminar.");
     }
 
+    @Override
+    public void registrarMovimiento(Connection con, long idProducto, int idBodega, TipoMovimientoInventario tipo, int cantidad, String referencia) {
+        String sql = "INSERT dbo.MovimientoInventario(id_producto,id_bodega,tipo_movimiento,cantidad,fecha,referencia) VALUES(?,?,?,?,?,?)";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setLong(1, idProducto);
+            ps.setInt(2, idBodega);
+            ps.setString(3, tipo.name());
+            ps.setInt(4, cantidad);
+            ps.setTimestamp(5, Timestamp.valueOf( java.time.LocalDateTime.now()));
+            ps.setString(6, referencia);
+            if (ps.executeUpdate() != 1) {
+                throw new IllegalStateException("No se pudo registrar el movimiento de inventario.");
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("No se pudo registrar el movimiento de inventario.", ex);
+        }
+    }
+
     private static MovimientoInventario mapear(ResultSet rs) throws SQLException {
         MovimientoInventario m = new MovimientoInventario();
         m.setId(rs.getInt("id")); m.setProducto(MapeoInventario.producto(rs)); m.setBodega(MapeoInventario.bodega(rs));
@@ -61,3 +79,4 @@ public class MovimientoInventarioDAOImpl implements MovimientoInventarioDAO {
         return m;
     }
 }
+

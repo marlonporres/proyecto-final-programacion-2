@@ -1,6 +1,10 @@
 package gt.edu.umg.ventas.servicio;
 
 import gt.edu.umg.ventas.dao.ConexionBD;
+import gt.edu.umg.ventas.dao.ExistenciaInventarioDAO;
+import gt.edu.umg.ventas.dao.ExistenciaInventarioDAOImpl;
+import gt.edu.umg.ventas.dao.MovimientoInventarioDAO;
+import gt.edu.umg.ventas.dao.MovimientoInventarioDAOImpl;
 import gt.edu.umg.ventas.modelo.Bodega;
 import gt.edu.umg.ventas.modelo.ExistenciaInventario;
 import gt.edu.umg.ventas.modelo.InventarioResumen;
@@ -8,45 +12,41 @@ import gt.edu.umg.ventas.modelo.Producto;
 import gt.edu.umg.ventas.modelo.TipoMovimientoInventario;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class InventarioService {
+
+    private final ExistenciaInventarioDAO existenciaDAO;
+    private final MovimientoInventarioDAO movimientoDAO;
+
+    public InventarioService() {
+        this(new ExistenciaInventarioDAOImpl(), new MovimientoInventarioDAOImpl());
+    }
+
+    public InventarioService(ExistenciaInventarioDAO existenciaDAO, MovimientoInventarioDAO movimientoDAO) {
+        this.existenciaDAO = Objects.requireNonNull(existenciaDAO);
+        this.movimientoDAO = Objects.requireNonNull(movimientoDAO);
+    }
 
     public ExistenciaInventario consultarExistencia(Producto producto, Bodega bodega) {
         return consultarExistencia(producto, bodega, null);
     }
 
     public ExistenciaInventario consultarExistencia(Producto producto, Bodega bodega, Connection conn) {
-        String sql = "SELECT id, id_producto, id_bodega, existencia_actual, existencia_reservada "
-                + "FROM dbo.ExistenciaInventario " + (conn != null ? "WITH (UPDLOCK, HOLDLOCK) " : "")
-                + "WHERE id_producto = ? AND id_bodega = ?";
         boolean localConn = false;
         try {
             if (conn == null) {
                 conn = ConexionBD.obtenerConexion();
                 localConn = true;
             }
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setLong(1, producto.getIdProducto());
-                stmt.setInt(2, bodega.getId());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        ExistenciaInventario ex = new ExistenciaInventario();
-                        ex.setId(rs.getInt("id"));
-                        ex.setProducto(producto);
-                        ex.setBodega(bodega);
-                        ex.setExistenciaActual(rs.getInt("existencia_actual"));
-                        ex.setExistenciaReservada(rs.getInt("existencia_reservada"));
-                        return ex;
-                    }
-                }
+            ExistenciaInventario ex = existenciaDAO.obtenerParaActualizar(conn, producto.getIdProducto(), bodega.getId());
+            if (ex != null) {
+                ex.setProducto(producto);
+                ex.setBodega(bodega);
             }
+            return ex;
         } catch (SQLException e) {
             throw new RuntimeException("Error al consultar existencia: " + e.getMessage(), e);
         } finally {
@@ -54,7 +54,6 @@ public class InventarioService {
                 try { conn.close(); } catch (SQLException ignored) {}
             }
         }
-        return null;
     }
 
     public boolean hayDisponibilidad(Producto producto, Bodega bodega, int cantidad) {
@@ -79,53 +78,21 @@ public class InventarioService {
             throw new IllegalArgumentException("La cantidad debe ser mayor a cero.");
         }
 
-        String updateExistencia = "UPDATE dbo.ExistenciaInventario SET existencia_actual = existencia_actual + ? WHERE id_producto = ? AND id_bodega = ?";
-        String insertExistencia = "INSERT INTO dbo.ExistenciaInventario (id_producto, id_bodega, existencia_actual, existencia_reservada) VALUES (?, ?, ?, 0)";
-        String insertMovimiento = "INSERT INTO dbo.MovimientoInventario (id_producto, id_bodega, tipo_movimiento, cantidad, fecha, referencia) VALUES (?, ?, ?, ?, ?, ?)";
-
         try (Connection conn = ConexionBD.obtenerConexion()) {
             conn.setAutoCommit(false);
             try {
-                // La seleccion en pantalla puede quedar desactualizada por otro mantenimiento.
-                // Conserva ambos estados hasta confirmar existencia y movimiento juntos.
-                try (PreparedStatement stmt = conn.prepareStatement(
-                        "SELECT p.id_producto FROM dbo.producto p WITH (HOLDLOCK) "
-                        + "JOIN dbo.Bodega b WITH (HOLDLOCK) ON b.id=? "
-                        + "WHERE p.id_producto=? AND p.activo=1 AND b.activa=1")) {
-                    stmt.setInt(1, bodega.getId());
-                    stmt.setLong(2, producto.getIdProducto());
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        if (!rs.next()) {
-                            throw new IllegalStateException("El producto o la bodega ya no está activo. Actualice el catálogo.");
-                        }
-                    }
+                if (!existenciaDAO.existeProducto(conn, producto.getIdProducto())
+                        || !existenciaDAO.existeBodegaActiva(conn, bodega.getId())) {
+                    throw new IllegalStateException("El producto o la bodega ya no está activo. Actualice el catálogo.");
                 }
-                ExistenciaInventario ex = consultarExistencia(producto, bodega, conn);
+                ExistenciaInventario ex = existenciaDAO.obtenerParaActualizar(conn, producto.getIdProducto(), bodega.getId());
                 if (ex != null) {
-                    try (PreparedStatement stmt = conn.prepareStatement(updateExistencia)) {
-                        stmt.setInt(1, cantidad);
-                        stmt.setLong(2, producto.getIdProducto());
-                        stmt.setInt(3, bodega.getId());
-                        stmt.executeUpdate();
-                    }
+                    existenciaDAO.actualizarExistenciaActual(conn, ex.getId(), ex.getExistenciaActual() + cantidad);
                 } else {
-                    try (PreparedStatement stmt = conn.prepareStatement(insertExistencia)) {
-                        stmt.setLong(1, producto.getIdProducto());
-                        stmt.setInt(2, bodega.getId());
-                        stmt.setInt(3, cantidad);
-                        stmt.executeUpdate();
-                    }
+                    existenciaDAO.insertarExistenciaInicial(conn, producto.getIdProducto(), bodega.getId(), cantidad);
                 }
-
-                try (PreparedStatement stmt = conn.prepareStatement(insertMovimiento)) {
-                    stmt.setLong(1, producto.getIdProducto());
-                    stmt.setInt(2, bodega.getId());
-                    stmt.setString(3, TipoMovimientoInventario.ENTRADA.name());
-                    stmt.setInt(4, cantidad);
-                    stmt.setTimestamp(5, Timestamp.valueOf(LocalDateTime.now()));
-                    stmt.setString(6, referencia);
-                    stmt.executeUpdate();
-                }
+                movimientoDAO.registrarMovimiento(conn, producto.getIdProducto(), bodega.getId(),
+                        TipoMovimientoInventario.ENTRADA, cantidad, referencia);
 
                 conn.commit();
             } catch (Exception e) {
@@ -143,10 +110,6 @@ public class InventarioService {
         if (producto == null || bodega == null) {
             throw new IllegalArgumentException("Producto y bodega son obligatorios.");
         }
-        String updateExistencia = "UPDATE dbo.ExistenciaInventario SET existencia_actual = existencia_actual - ? "
-                + "WHERE id_producto = ? AND id_bodega = ? AND existencia_actual - existencia_reservada >= ? "
-                + "AND EXISTS (SELECT 1 FROM dbo.Bodega WHERE id = id_bodega AND activa = 1)";
-        String insertMovimiento = "INSERT INTO dbo.MovimientoInventario (id_producto, id_bodega, tipo_movimiento, cantidad, fecha, referencia) VALUES (?, ?, ?, ?, ?, ?)";
 
         boolean localConn = false;
         if (conn == null) {
@@ -156,25 +119,16 @@ public class InventarioService {
         }
 
         try {
-            try (PreparedStatement stmt = conn.prepareStatement(updateExistencia)) {
-                stmt.setInt(1, cantidad);
-                stmt.setLong(2, producto.getIdProducto());
-                stmt.setInt(3, bodega.getId());
-                stmt.setInt(4, cantidad);
-                if (stmt.executeUpdate() != 1) {
-                    throw new IllegalStateException("Stock insuficiente o bodega inactiva para " + producto.getNombre());
-                }
+            if (!existenciaDAO.existeBodegaActiva(conn, bodega.getId())) {
+                throw new IllegalStateException("Stock insuficiente o bodega inactiva para " + producto.getNombre());
             }
-
-            try (PreparedStatement stmt = conn.prepareStatement(insertMovimiento)) {
-                stmt.setLong(1, producto.getIdProducto());
-                stmt.setInt(2, bodega.getId());
-                stmt.setString(3, TipoMovimientoInventario.SALIDA.name());
-                stmt.setInt(4, cantidad);
-                stmt.setTimestamp(5, Timestamp.valueOf(LocalDateTime.now()));
-                stmt.setString(6, referencia);
-                stmt.executeUpdate();
+            ExistenciaInventario ex = existenciaDAO.obtenerParaActualizar(conn, producto.getIdProducto(), bodega.getId());
+            if (ex == null || ex.getExistenciaDisponible() < cantidad) {
+                throw new IllegalStateException("Stock insuficiente o bodega inactiva para " + producto.getNombre());
             }
+            existenciaDAO.actualizarExistenciaActual(conn, ex.getId(), ex.getExistenciaActual() - cantidad);
+            movimientoDAO.registrarMovimiento(conn, producto.getIdProducto(), bodega.getId(),
+                    TipoMovimientoInventario.SALIDA, cantidad, referencia);
 
             if (localConn) conn.commit();
         } catch (Exception e) {
@@ -185,73 +139,15 @@ public class InventarioService {
         }
     }
 
+    public List<InventarioResumen> consultarSaldos() {
+        return existenciaDAO.consultarSaldosActivos();
+    }
+
     public List<InventarioResumen> listarExistencias(Integer idBodega, String filtroTexto) {
-        List<InventarioResumen> lista = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(
-                "SELECT p.codigo, p.nombre AS producto, b.nombre AS bodega, "
-                + "ei.existencia_actual, ei.existencia_reservada, "
-                + "(ei.existencia_actual - ei.existencia_reservada) AS disponible "
-                + "FROM dbo.ExistenciaInventario ei "
-                + "INNER JOIN dbo.producto p ON ei.id_producto = p.id_producto "
-                + "INNER JOIN dbo.Bodega b ON ei.id_bodega = b.id "
-                + "WHERE 1=1 "
-        );
-
-        if (idBodega != null && idBodega > 0) {
-            sql.append("AND ei.id_bodega = ? ");
-        }
-        if (filtroTexto != null && !filtroTexto.isBlank()) {
-            sql.append("AND (p.nombre LIKE ? OR p.codigo LIKE ?) ");
-        }
-        sql.append("ORDER BY b.nombre, p.nombre");
-
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
-            int paramIndex = 1;
-            if (idBodega != null && idBodega > 0) {
-                stmt.setInt(paramIndex++, idBodega);
-            }
-            if (filtroTexto != null && !filtroTexto.isBlank()) {
-                String patron = "%" + filtroTexto.trim() + "%";
-                stmt.setString(paramIndex++, patron);
-                stmt.setString(paramIndex++, patron);
-            }
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    InventarioResumen ir = new InventarioResumen(
-                            rs.getString("codigo"),
-                            rs.getString("producto"),
-                            rs.getString("bodega"),
-                            rs.getInt("existencia_actual"),
-                            rs.getInt("existencia_reservada"),
-                            rs.getInt("disponible")
-                    );
-                    lista.add(ir);
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error al listar existencias de inventario: " + e.getMessage(), e);
-        }
-        return lista;
+        return existenciaDAO.listarExistencias(idBodega, filtroTexto);
     }
 
     public int obtenerDisponibilidadTotal(long idProducto) {
-        String sql = "SELECT SUM(existencia_actual - existencia_reservada) AS disponible "
-                   + "FROM dbo.ExistenciaInventario ei "
-                   + "INNER JOIN dbo.Bodega b ON ei.id_bodega = b.id "
-                   + "WHERE ei.id_producto = ? AND b.activa = 1";
-        try (Connection conn = ConexionBD.obtenerConexion();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setLong(1, idProducto);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("disponible");
-                }
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("No se pudo consultar la disponibilidad de inventario.", e);
-        }
-        return 0;
+        return existenciaDAO.obtenerDisponibilidadTotal(idProducto);
     }
 }

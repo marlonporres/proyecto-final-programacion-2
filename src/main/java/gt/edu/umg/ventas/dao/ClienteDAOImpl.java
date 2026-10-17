@@ -57,8 +57,10 @@ public class ClienteDAOImpl implements ClienteDAO {
             ps.setString(3, cliente.getDireccion());
             ps.setString(4, cliente.getTelefono());
             ps.setString(5, cliente.getCorreo());
-            ps.setLong(6, cliente.getIdCliente());
-            ps.executeUpdate();
+            ps.setLong(6, cliente.getId());
+            if (ps.executeUpdate() != 1) {
+                throw new IllegalStateException("No existe el cliente con ID " + cliente.getId() + " para actualizar.");
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Error al actualizar cliente: " + e.getMessage(), e);
         }

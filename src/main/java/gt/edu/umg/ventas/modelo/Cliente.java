@@ -32,6 +32,14 @@ public class Cliente {
         this.idCliente = idCliente;
     }
 
+    public long getId() {
+        return idCliente;
+    }
+
+    public void setId(long id) {
+        this.idCliente = id;
+    }
+
     public String getNit() {
         return nit;
     }

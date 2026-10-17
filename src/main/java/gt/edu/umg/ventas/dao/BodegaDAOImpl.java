@@ -11,13 +11,18 @@ public class BodegaDAOImpl implements BodegaDAO {
         if (b == null || b.getNombre() == null || b.getNombre().isBlank()) {
             throw new IllegalArgumentException("El nombre de bodega es obligatorio.");
         }
+        if (editar && (b.getId() == null || b.getId() <= 0)) {
+            throw new IllegalArgumentException("El ID de bodega es inválido para actualizar.");
+        }
         String sql = editar ? "UPDATE dbo.Bodega SET nombre=?,ubicacion=?,activa=? WHERE id=?"
                 : "INSERT dbo.Bodega (nombre,ubicacion,activa) VALUES (?,?,?)";
         try (Connection con = ConexionBD.obtenerConexion();
              PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, b.getNombre().trim()); ps.setString(2, b.getUbicacion()); ps.setBoolean(3, b.isActiva());
             if (editar) ps.setInt(4, b.getId());
-            if (ps.executeUpdate() != 1) throw new SQLException("Bodega no encontrada.");
+            if (ps.executeUpdate() != 1) {
+                throw new IllegalStateException("No existe la bodega con ID " + b.getId() + " para actualizar.");
+            }
             if (!editar) try (ResultSet rs = ps.getGeneratedKeys()) { if (rs.next()) b.setId(rs.getInt(1)); }
         } catch (SQLException e) { throw new IllegalStateException("No se pudo guardar la bodega.", e); }
     }
@@ -46,6 +51,3 @@ public class BodegaDAOImpl implements BodegaDAO {
         b.setUbicacion(rs.getString("ubicacion")); b.setActiva(rs.getBoolean("activa")); return b;
     }
 }
-
-
-
