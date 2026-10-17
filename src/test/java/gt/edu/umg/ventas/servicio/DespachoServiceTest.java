@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -55,7 +56,7 @@ public class DespachoServiceTest {
     }
 
     @Test
-    public void testClienteControllerValidacionesYNitPropio() {
+    public void testClienteControllerValidacionesYMultiplesTelefonos() {
         Cliente existente = new Cliente(5L, "123456-7", "Empresa S.A.", "Zona 1", "22223333", "info@empresa.com");
         AtomicReference<Cliente> actualizado = new AtomicReference<>();
 
@@ -78,18 +79,26 @@ public class DespachoServiceTest {
         Cliente nuevoConMismoNit = new Cliente(0L, "123456-7", "Otro", "", "", "");
         assertThrows(IllegalArgumentException.class, () -> controller.guardar(nuevoConMismoNit));
 
-        // Permite conservar su propio NIT al actualizar
-        Cliente edicionMismoCliente = new Cliente(5L, "123456-7", "Empresa Editada S.A.", "Zona 10", "22223333", "info@empresa.com");
+        // Permite conservar su propio NIT al actualizar y depura múltiples teléfonos
+        Cliente edicionMismoCliente = new Cliente(5L, "123456-7", "Empresa Editada S.A.", "Zona 10", "", "info@empresa.com");
+        edicionMismoCliente.setTelefonos(Arrays.asList(" 5555-1111 ", "5555-2222", "5555-1111", "  "));
         controller.actualizar(edicionMismoCliente);
         assertEquals("Empresa Editada S.A.", actualizado.get().getNombre());
+        assertEquals(List.of("5555-1111", "5555-2222"), actualizado.get().getTelefonos());
+        assertEquals("5555-1111", actualizado.get().getTelefono());
+        assertEquals("5555-1111, 5555-2222", actualizado.get().getTelefonosTexto());
 
         // Rechaza NIT de otro cliente al actualizar
         Cliente edicionOtroCliente = new Cliente(9L, "123456-7", "Intruso", "", "", "");
         assertThrows(IllegalArgumentException.class, () -> controller.actualizar(edicionOtroCliente));
 
-        // Rechaza longitudes fuera de esquema
+        // Rechaza longitudes fuera de esquema (NIT > 20 y teléfono > 20)
         Cliente nitLargo = new Cliente(0L, "123456789012345678901", "Valido", "", "", "");
         assertThrows(IllegalArgumentException.class, () -> controller.guardar(nitLargo));
+
+        Cliente telLargo = new Cliente(0L, "998877-6", "Valido", "", "", "");
+        telLargo.agregarTelefono("123456789012345678901");
+        assertThrows(IllegalArgumentException.class, () -> controller.guardar(telLargo));
     }
 
     @Test

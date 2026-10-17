@@ -4,8 +4,12 @@ import gt.edu.umg.ventas.dao.ClienteDAO;
 import gt.edu.umg.ventas.dao.ClienteDAOImpl;
 import gt.edu.umg.ventas.modelo.Cliente;
 //*prueba*/
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public class ClienteController {
 
@@ -58,7 +62,6 @@ public class ClienteController {
         String nit = cliente.getNit().trim();
         String nombre = cliente.getNombre().trim();
         String direccion = cliente.getDireccion() != null ? cliente.getDireccion().trim() : null;
-        String telefono = cliente.getTelefono() != null ? cliente.getTelefono().trim() : null;
         String correo = cliente.getCorreo() != null ? cliente.getCorreo().trim() : null;
 
         if (nit.length() > 20) {
@@ -70,18 +73,31 @@ public class ClienteController {
         if (direccion != null && direccion.length() > 255) {
             throw new IllegalArgumentException("La dirección no puede exceder 255 caracteres.");
         }
-        if (telefono != null && telefono.length() > 20) {
-            throw new IllegalArgumentException("El teléfono no puede exceder 20 caracteres.");
-        }
         if (correo != null && correo.length() > 100) {
             throw new IllegalArgumentException("El correo no puede exceder 100 caracteres.");
+        }
+
+        // [CAMBIO 1:N TELÉFONOS]: Limpia espacios, descarta vacíos/duplicados con LinkedHashSet y valida longitud <= 20 por cada teléfono.
+        Set<String> telefonosUnicos = new LinkedHashSet<>();
+        List<String> origenTelefonos = cliente.getTelefonos();
+        if (origenTelefonos != null) {
+            for (String tel : origenTelefonos) {
+                if (tel != null && !tel.isBlank()) {
+                    String limpio = tel.trim();
+                    if (limpio.length() > 20) {
+                        throw new IllegalArgumentException("El teléfono '" + limpio + "' no puede exceder 20 caracteres.");
+                    }
+                    telefonosUnicos.add(limpio);
+                }
+            }
         }
 
         cliente.setNit(nit);
         cliente.setNombre(nombre);
         cliente.setDireccion(direccion);
-        cliente.setTelefono(telefono);
         cliente.setCorreo(correo);
+        // [CAMBIO 1:N TELÉFONOS]: Asigna la lista depurada de teléfonos al modelo antes de enviarlo al DAO.
+        cliente.setTelefonos(new ArrayList<>(telefonosUnicos));
 
         Cliente existente = clienteDAO.buscarPorNit(nit);
         if (existente != null) {
