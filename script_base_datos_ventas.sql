@@ -16,7 +16,8 @@ CREATE TABLE dbo.usuario (
 );
 CREATE TABLE dbo.cliente (
     id_cliente BIGINT IDENTITY PRIMARY KEY, nit VARCHAR(20) NOT NULL UNIQUE,
-    nombre NVARCHAR(150) NOT NULL, direccion NVARCHAR(255), telefono VARCHAR(20), correo VARCHAR(100)
+    nombre NVARCHAR(150) NOT NULL, direccion NVARCHAR(255), telefono VARCHAR(20), correo VARCHAR(100), fecha_nacimiento DATE NULL
+
 );
 CREATE TABLE dbo.categoria (
     id_categoria BIGINT IDENTITY PRIMARY KEY, nombre NVARCHAR(100) NOT NULL UNIQUE,

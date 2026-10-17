@@ -3,7 +3,7 @@ package gt.edu.umg.ventas.controlador;
 import gt.edu.umg.ventas.dao.ClienteDAO;
 import gt.edu.umg.ventas.dao.ClienteDAOImpl;
 import gt.edu.umg.ventas.modelo.Cliente;
-
+//*prueba*/
 import java.util.List;
 import java.util.Objects;
 
