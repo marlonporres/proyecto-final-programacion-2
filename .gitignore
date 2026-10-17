@@ -30,3 +30,4 @@ tmp/
 # Database configuration
 src/main/resources/database.properties
 database.properties
+/.vs/proyecto-final-programacion.slnx/v18
