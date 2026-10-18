@@ -19,6 +19,24 @@ CREATE TABLE dbo.cliente (
     nombre NVARCHAR(150) NOT NULL, direccion NVARCHAR(255), telefono VARCHAR(20), correo VARCHAR(100), fecha_nacimiento DATE NULL
 
 );
+-- [CAMBIO 1:N TELÉFONOS]: Creación de tabla detalle dbo.cliente_telefono con número y tipo (Personal, Trabajo, Casa, Otro)
+-- y migración automática de los teléfonos existentes en dbo.cliente.
+IF OBJECT_ID('dbo.cliente_telefono', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.cliente_telefono (
+        id_telefono INT IDENTITY(1,1) PRIMARY KEY,
+        id_cliente BIGINT NOT NULL,
+        telefono NVARCHAR(20) NOT NULL,
+        tipo NVARCHAR(30) NOT NULL DEFAULT 'Personal',
+        CONSTRAINT FK_cliente_telefono_cliente FOREIGN KEY (id_cliente)
+            REFERENCES dbo.cliente(id_cliente) ON DELETE CASCADE
+    );
+    EXEC('INSERT INTO dbo.cliente_telefono (id_cliente, telefono, tipo) SELECT id_cliente, LTRIM(RTRIM(telefono)), ''Personal'' FROM dbo.cliente WHERE telefono IS NOT NULL AND LTRIM(RTRIM(telefono)) <> ''''');
+END
+ELSE IF COL_LENGTH('dbo.cliente_telefono', 'tipo') IS NULL
+BEGIN
+    EXEC('ALTER TABLE dbo.cliente_telefono ADD tipo NVARCHAR(30) NOT NULL DEFAULT ''Personal'' WITH VALUES');
+END
 CREATE TABLE dbo.categoria (
     id_categoria BIGINT IDENTITY PRIMARY KEY, nombre NVARCHAR(100) NOT NULL UNIQUE,
     descripcion NVARCHAR(255), activa BIT NOT NULL DEFAULT 1
