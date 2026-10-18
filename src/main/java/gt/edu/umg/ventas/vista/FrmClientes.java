@@ -4,9 +4,14 @@ import gt.edu.umg.ventas.util.Dialogos;
 import gt.edu.umg.ventas.controlador.ClienteController;
 import gt.edu.umg.ventas.modelo.Cliente;
 import gt.edu.umg.ventas.modelo.Telefono;
+import gt.edu.umg.ventas.util.PaisTelefono;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +26,9 @@ public class FrmClientes extends JInternalFrame {
     private JTextField txtTelefono;
     // [CAMBIO 1:N TELÉFONOS]: Selector de tipo de teléfono (Personal, Trabajo, Casa u Otro) exigido en el documento oficial.
     private JComboBox<String> cmbTipoTelefono;
+    // [VALIDACIÓN POR PAÍS]: País del teléfono (define prefijo y reglas) y texto con la regla vigente.
+    private JComboBox<PaisTelefono> cmbPaisTelefono;
+    private JLabel lblReglaTelefono;
     private JTextField txtCorreo;
     // [CAMBIO 1:N TELÉFONOS]: Modelo y componente JList de objetos Telefono (número y tipo) para gestionar múltiples teléfonos en la vista.
     private DefaultListModel<Telefono> modeloTelefonos;
@@ -33,8 +41,8 @@ public class FrmClientes extends JInternalFrame {
         super("Catálogo de Clientes", true, true, true, true);
         this.controller = new ClienteController();
 
-        setSize(860, 560);
-        setMinimumSize(new Dimension(740, 440));
+        setSize(920, 590);
+        setMinimumSize(new Dimension(800, 460));
         initComponents();
         cargarDatos();
     }
@@ -80,8 +88,35 @@ public class FrmClientes extends JInternalFrame {
 
         JPanel pnlTelefonos = new JPanel(new BorderLayout(6, 4));
         JPanel pnlInputTel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        // [VALIDACIÓN POR PAÍS]: Selector de país (Guatemala por defecto). Un número escrito con prefijo (+504 ...) usa el país del prefijo.
+        pnlInputTel.add(new JLabel("País:"));
+        cmbPaisTelefono = new JComboBox<>(PaisTelefono.values());
+        cmbPaisTelefono.setSelectedItem(PaisTelefono.GUATEMALA);
+        cmbPaisTelefono.addActionListener(e -> actualizarReglaTelefono());
+        pnlInputTel.add(cmbPaisTelefono);
+
         pnlInputTel.add(new JLabel("Número:"));
         txtTelefono = new JTextField(11);
+        // [VALIDACIÓN POR PAÍS]: Solo permite dígitos, espacios, +, -, paréntesis y un máximo de 20 caracteres.
+        ((AbstractDocument) txtTelefono.getDocument()).setDocumentFilter(new DocumentFilter() {
+            private boolean permitido(String texto) {
+                return texto.matches("[0-9 +()\\-]*");
+            }
+
+            @Override
+            public void insertString(FilterBypass fb, int offset, String texto, AttributeSet attr) throws BadLocationException {
+                if (texto != null && permitido(texto) && fb.getDocument().getLength() + texto.length() <= 20) {
+                    super.insertString(fb, offset, texto, attr);
+                }
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String texto, AttributeSet attr) throws BadLocationException {
+                if (texto == null || (permitido(texto) && fb.getDocument().getLength() - length + texto.length() <= 20)) {
+                    super.replace(fb, offset, length, texto, attr);
+                }
+            }
+        });
         pnlInputTel.add(txtTelefono);
 
         pnlInputTel.add(new JLabel("Tipo:"));
@@ -96,7 +131,13 @@ public class FrmClientes extends JInternalFrame {
         btnQuitarTel.addActionListener(e -> quitarTelefonoLista());
         pnlInputTel.add(btnQuitarTel);
 
-        pnlTelefonos.add(pnlInputTel, BorderLayout.NORTH);
+        lblReglaTelefono = new JLabel();
+        lblReglaTelefono.setFont(lblReglaTelefono.getFont().deriveFont(Font.ITALIC, 11f));
+        JPanel pnlEntradaTelefono = new JPanel(new BorderLayout());
+        pnlEntradaTelefono.add(pnlInputTel, BorderLayout.NORTH);
+        pnlEntradaTelefono.add(lblReglaTelefono, BorderLayout.CENTER);
+        actualizarReglaTelefono();
+        pnlTelefonos.add(pnlEntradaTelefono, BorderLayout.NORTH);
 
         modeloTelefonos = new DefaultListModel<>();
         lstTelefonos = new JList<>(modeloTelefonos);
@@ -154,8 +195,11 @@ public class FrmClientes extends JInternalFrame {
         if (tel.isEmpty()) {
             return;
         }
-        if (tel.length() > 20) {
-            Dialogos.showMessageDialog(this, "El teléfono no puede exceder 20 caracteres.", "Validación", JOptionPane.WARNING_MESSAGE);
+        // [VALIDACIÓN POR PAÍS]: Valida según el país elegido (o el del prefijo) y arma el número final.
+        try {
+            tel = PaisTelefono.normalizar(tel, (PaisTelefono) cmbPaisTelefono.getSelectedItem());
+        } catch (IllegalArgumentException ex) {
+            Dialogos.showMessageDialog(this, ex.getMessage(), "Teléfono inválido", JOptionPane.WARNING_MESSAGE);
             return;
         }
         String tipo = (String) cmbTipoTelefono.getSelectedItem();
@@ -163,6 +207,14 @@ public class FrmClientes extends JInternalFrame {
         txtTelefono.setText("");
         cmbTipoTelefono.setSelectedIndex(0);
         txtTelefono.requestFocusInWindow();
+    }
+
+    // [VALIDACIÓN POR PAÍS]: Muestra debajo del campo la regla del país seleccionado.
+    private void actualizarReglaTelefono() {
+        PaisTelefono pais = (PaisTelefono) cmbPaisTelefono.getSelectedItem();
+        if (pais != null) {
+            lblReglaTelefono.setText("  Regla " + pais.getNombre() + " (+" + pais.getCodigo() + "): " + pais.getRegla());
+        }
     }
 
     // [CAMBIO 1:N TELÉFONOS]: Evita duplicar el mismo número en el JList; si ya existe actualiza su tipo, si no existe lo añade.
@@ -193,6 +245,7 @@ public class FrmClientes extends JInternalFrame {
         txtDireccion.setText("");
         txtTelefono.setText("");
         cmbTipoTelefono.setSelectedIndex(0);
+        cmbPaisTelefono.setSelectedItem(PaisTelefono.GUATEMALA);
         txtCorreo.setText("");
         // [CAMBIO 1:N TELÉFONOS]: Limpia la lista visual de teléfonos al reiniciar el formulario.
         modeloTelefonos.clear();
@@ -213,6 +266,7 @@ public class FrmClientes extends JInternalFrame {
                     txtDireccion.setText(c.getDireccion() != null ? c.getDireccion() : "");
                     txtTelefono.setText("");
                     cmbTipoTelefono.setSelectedIndex(0);
+                    cmbPaisTelefono.setSelectedItem(PaisTelefono.GUATEMALA);
                     txtCorreo.setText(c.getCorreo() != null ? c.getCorreo() : "");
                     modeloTelefonos.clear();
                     for (Telefono tel : c.getListaTelefonos()) {
@@ -262,8 +316,11 @@ public class FrmClientes extends JInternalFrame {
         // [CAMBIO 1:N TELÉFONOS]: Si el usuario dejó un teléfono escrito en txtTelefono sin presionar "+ Añadir Teléfono", lo agrega con su tipo seleccionado.
         String telPendiente = txtTelefono.getText().trim();
         if (!telPendiente.isEmpty()) {
-            if (telPendiente.length() > 20) {
-                Dialogos.showMessageDialog(this, "El teléfono no puede exceder 20 caracteres.", "Validación", JOptionPane.WARNING_MESSAGE);
+            // [VALIDACIÓN POR PAÍS]: El teléfono pendiente también se valida según el país elegido.
+            try {
+                telPendiente = PaisTelefono.normalizar(telPendiente, (PaisTelefono) cmbPaisTelefono.getSelectedItem());
+            } catch (IllegalArgumentException ex) {
+                Dialogos.showMessageDialog(this, ex.getMessage(), "Teléfono inválido", JOptionPane.WARNING_MESSAGE);
                 return;
             }
             String tipoPendiente = (String) cmbTipoTelefono.getSelectedItem();

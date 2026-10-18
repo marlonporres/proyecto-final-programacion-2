@@ -4,6 +4,7 @@ import gt.edu.umg.ventas.dao.ClienteDAO;
 import gt.edu.umg.ventas.dao.ClienteDAOImpl;
 import gt.edu.umg.ventas.modelo.Cliente;
 import gt.edu.umg.ventas.modelo.Telefono;
+import gt.edu.umg.ventas.util.PaisTelefono;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -92,8 +93,11 @@ public class ClienteService {
                     if (numLimpio.length() > 20) {
                         throw new IllegalArgumentException("El teléfono '" + numLimpio + "' no puede exceder 20 caracteres.");
                     }
+                    // [VALIDACIÓN POR PAÍS]: Valida largo y primer dígito según el país (sin prefijo = Guatemala, 8 dígitos)
+                    // y guarda Guatemala como "5555-1111" y los demás países con prefijo, por ejemplo "+504 9876-5432".
+                    String numNormalizado = PaisTelefono.normalizar(numLimpio, PaisTelefono.GUATEMALA);
                     String tipoNormalizado = Telefono.normalizarTipo(tel.getTipo());
-                    telefonosDepurados.put(numLimpio, new Telefono(tel.getIdTelefono(), cliente.getId(), numLimpio, tipoNormalizado));
+                    telefonosDepurados.put(numNormalizado, new Telefono(tel.getIdTelefono(), cliente.getId(), numNormalizado, tipoNormalizado));
                 }
             }
         }
