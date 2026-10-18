@@ -34,10 +34,13 @@ public class FrmContenedorPadre extends JFrame {
         
         itemNuevaOrden.addActionListener(e -> agregarVentana(new FrmOrdenVenta()));
         itemConsultarOrdenes.addActionListener(e -> agregarVentana(new FrmConsultaOrdenesVenta()));
+        JMenuItem itemConsultarFacturas = new JMenuItem("Consultar Facturas Emitidas");
+        itemConsultarFacturas.addActionListener(e -> agregarVentana(new FrmConsultaFacturas()));
         
         menuVentas.add(itemNuevaOrden);
         menuVentas.add(itemConsultarOrdenes);
         menuVentas.add(itemFacturacion);
+        menuVentas.add(itemConsultarFacturas);
         menuBar.add(menuVentas);
 
         // Menu Inventario
