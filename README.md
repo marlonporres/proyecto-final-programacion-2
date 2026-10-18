@@ -2,9 +2,16 @@
 
 Aplicación de escritorio para una tienda de productos de computación, desarrollada con **Java Swing, JDBC y SQL Server**. Integra catálogos, inventario por bodega, órdenes de venta, despachos, facturación y consulta de la operación completa.
 
+**Accesos rápidos:** [Preparación de la base](#preparación-de-la-base-de-datos) · [Ejecutar en Windows](#ejecutar-en-windows) · [Demostración](#recorrido-para-la-demostración) · [Arquitectura](#arquitectura) · [Pruebas y evidencia](#pruebas-y-evidencia).
+
+## Cambio en caliente solicitado por el ingeniero
+
+### [Abrir informe del cambio en caliente en clientes](https://drive.google.com/file/d/11uArrGy9h7B7cHDLe28EFtkR2DecaD90/view?usp=sharing)
+
+Informe del **17 de octubre de 2026** sobre la administración de **múltiples teléfonos por cliente con número y tipo**. Compara el commit `7ed6da9` con los cambios locales de esa revisión y explica las clases modificadas, el recorrido **Vista → Controlador → Servicio → DAO → Base de datos**, la verificación realizada y los puntos pendientes para la defensa técnica.
+
 ## Entrega y documento de defensa
 
-<!-- Sustituya el destino del enlace siguiente por la URL completa del Google Doc de defensa. Compruebe que el ingeniero tenga permiso de lectura. -->
 ### [Abrir el documento de defensa y explicación del proyecto](https://docs.google.com/document/d/1lGquripMr4y55byKVBEs98gh69SZ7zLL6HuliuXVjfM/edit)
 
 El documento de defensa complementa el código con la explicación del proyecto y las ayudas para la exposición. Este repositorio reúne la implementación, el instalador de la base de datos, las pruebas y la documentación técnica.
@@ -18,6 +25,20 @@ El documento de defensa complementa el código con la explicación del proyecto 
 | [Guion de demostración](docs/guion_entrega.md) | Recorrido práctico para presentar el sistema. |
 | [Registro de verificación](docs/verificacion_implementacion.md) | Resultados de pruebas, revisiones y evidencias técnicas. |
 | [Catálogo de computación](docs/catalogo_computacion.md) | Productos ficticios, categorías y precios de referencia. |
+
+## Cambios recientes en clientes
+
+La primera ampliación incorporó varios números por cliente. La versión actual añade su **tipo** y una capa de servicio, conservando la relación **un cliente → muchos teléfonos**, sin campos fijos como `telefono1`, `telefono2` o `telefono3`.
+
+| Área | Implementación actual |
+| --- | --- |
+| Modelo | [Cliente](src/main/java/gt/edu/umg/ventas/modelo/Cliente.java) contiene una `List<Telefono>`. La nueva clase [Telefono](src/main/java/gt/edu/umg/ventas/modelo/Telefono.java) representa identificadores, número y tipo. |
+| Servicio y controlador | [ClienteService](src/main/java/gt/edu/umg/ventas/servicio/ClienteService.java) concentra validaciones y depuración; [ClienteController](src/main/java/gt/edu/umg/ventas/controlador/ClienteController.java) delega las operaciones en el servicio. |
+| Interfaz | [FrmClientes](src/main/java/gt/edu/umg/ventas/vista/FrmClientes.java) permite añadir, quitar y mostrar teléfonos con los tipos **Personal, Trabajo, Casa u Otro**. Reingresar el mismo número permite cambiar su tipo sin duplicarlo. |
+| Persistencia | [ClienteDAOImpl](src/main/java/gt/edu/umg/ventas/dao/ClienteDAOImpl.java) guarda y consulta número y tipo en `dbo.cliente_telefono`. Al actualizar, reemplaza la colección dentro de la transacción del cliente. |
+| Compatibilidad | El primer número se conserva en `cliente.telefono` como principal. Los métodos que reciben o devuelven cadenas siguen disponibles; los números sin tipo usan **Personal**. |
+
+La lista no tiene un máximo fijo de teléfonos; el límite de **20 caracteres se aplica a cada número**. El servicio conserva NIT y nombre obligatorios, control de NIT duplicado y límites de longitud de los datos del cliente.
 
 ## Funcionamiento y reglas principales
 
@@ -50,7 +71,7 @@ Las dependencias de FlatLaf, JDBC y JUnit se resuelven mediante [pom.xml](pom.xm
 
 ### Instalación nueva
 
-1. En SQL Server, ejecutar [script_base_datos_ventas.sql](script_base_datos_ventas.sql). Crea `SistemaVentas`, sus 14 tablas, relaciones, restricciones e índices; incluye un usuario académico admin, un cliente CF y 24 productos ficticios de computación en seis categorías.
+1. En SQL Server, ejecutar [script_base_datos_ventas.sql](script_base_datos_ventas.sql). El esquema actual crea `SistemaVentas` y **15 tablas**, incluida `cliente_telefono`, con sus relaciones, restricciones e índices. Incluye un usuario académico admin, un cliente CF y 24 productos ficticios de computación en seis categorías.
 2. Copiar [database.properties.example](src/main/resources/database.properties.example) como `src/main/resources/database.properties`.
 3. Completar los datos de conexión locales:
 
@@ -64,6 +85,7 @@ db.password=su_clave_local
 
 ### Si ya existe una base
 
+- **Clientes y teléfonos:** en el primer uso del DAO de clientes, la aplicación comprueba el esquema. Si falta `cliente_telefono`, la crea y copia los teléfonos anteriores como **Personal**; si la tabla existe sin `tipo`, agrega esa columna con el mismo valor para los registros existentes. Esta adaptación requiere permisos para crear o modificar tablas cuando sean necesarios; no es una migración general del sistema.
 - Para añadir los productos al esquema actualizado, usar [cargar_catalogo_computacion.sql](docs/cargar_catalogo_computacion.sql). Conserva ventas, precios y existencias existentes; repetirlo no duplica productos ni repone stock.
 - Si el esquema fue instalado antes de separar generación y confirmación del despacho, aplicar [actualizar_despacho_pendiente.sql](docs/actualizar_despacho_pendiente.sql). Ajusta la restricción de cantidades sin borrar registros; las instalaciones nuevas ya incluyen el cambio.
 - **No recrear una base con datos que se necesiten conservar.** [recrear_base_pruebas.sql](docs/recrear_base_pruebas.sql) elimina `SistemaVentas` y sus datos. Usarlo únicamente para un reinicio deliberado, con respaldo; después ejecutar el instalador. El instalador no migra automáticamente un esquema antiguo.
@@ -88,13 +110,23 @@ Si faltan dependencias al verificar, añadir `-EnLinea`. Si Maven utiliza una ub
 El lanzador comprueba Java, Maven, la configuración y el servicio SQL Server. Ejecuta PowerShell con una política limitada a ese proceso; no modifica la política de Windows. Para ejecutar directamente con Maven:
 
 ```powershell
-mvn clean test
 mvn compile exec:java
 ```
 
 La clase principal es `gt.edu.umg.ventas.SistemaVentas`. Los generadores Python históricos no forman parte de la construcción; no ejecutarlos sobre los formularios actuales.
 
 ## Recorrido para la demostración
+
+### Cambio en caliente de clientes
+
+1. Abrir **Catálogos → Clientes** y registrar un cliente o seleccionar uno existente.
+2. Introducir un número, elegir **Personal**, pulsar **Añadir Teléfono** y agregar otro de tipo **Trabajo**.
+3. Guardar y volver a seleccionar el cliente para comprobar que aparecen ambos números con sus tipos. Cerrar y abrir la aplicación para demostrar su recuperación desde SQL Server.
+4. Para cambiar un tipo, reingresar el mismo número, seleccionar otro tipo y pulsar **Añadir Teléfono**. Para eliminar un número, seleccionarlo en la lista y pulsar **Quitar**; guardar los cambios.
+
+Estos pasos son el guion de la demostración; su ejecución completa con la nueva clasificación sigue pendiente de verificación.
+
+### Venta completa
 
 1. **Catálogos:** registrar o seleccionar un cliente; consultar categorías, productos y bodegas.
 2. **Inventario:** consultar existencias por bodega. Si se necesita abastecer, registrar una entrada con cantidad entera positiva y referencia.
@@ -115,26 +147,42 @@ Los paquetes se encuentran bajo `src/main/java/gt/edu/umg/ventas`:
 | --- | --- |
 | `vista` | Formularios Swing y presentación de resultados. |
 | `controlador` | Coordinación de acciones de la interfaz. |
-| `servicio` | Reglas de negocio y transacciones. |
-| `dao` | Consultas y persistencia mediante JDBC. |
-| `modelo` | Entidades y proyecciones de consulta. |
+| `servicio` | Validaciones y coordinación de operaciones; inventario y despacho coordinan sus transacciones. |
+| `dao` | Sentencias SQL, acceso JDBC y mapeo de resultados; clientes guarda su cabecera y teléfonos en una transacción propia. |
+| `modelo` | Entidades y proyecciones de consulta, incluidos `Cliente` y `Telefono`. |
 | `util` | Sesión, moneda, diálogos y actualización de consultas abiertas. |
 
-`ExistenciaInventario` es la fuente del stock físico por producto y bodega; `MovimientoInventario` registra entradas y salidas. Inventario y despacho utilizan una conexión compartida durante cada transacción. La factura vuelve a validar la orden al persistir; las restricciones de la base respaldan los controles contra duplicados. Las entradas también revalidan producto y bodega en la transacción para rechazar selecciones desactivadas después de abrir el formulario.
+**Flujo del módulo de clientes:**
+
+```text
+FrmClientes → ClienteController → ClienteService → ClienteDAO / ClienteDAOImpl → SQL Server
+```
+
+Las sentencias SQL se concentran en los DAO. Los servicios de inventario y despacho conservan la coordinación de sus transacciones y pasan una conexión compartida a los DAO que participan en ellas.
+
+`ExistenciaInventario` es la fuente del stock físico por producto y bodega; `MovimientoInventario` registra entradas y salidas. La factura vuelve a validar la orden al persistir; las restricciones de la base respaldan los controles contra duplicados. Las entradas también revalidan producto y bodega en la transacción para rechazar selecciones desactivadas después de abrir el formulario.
 
 ## Pruebas y evidencia
 
-La **última verificación documentada, del 3 de octubre de 2026**, registró **50 pruebas exitosas: 36 sin SQL Server y 14 de integración**, sin errores ni omisiones en la ejecución completa. Consultar el [registro de verificación](docs/verificacion_implementacion.md) para los comandos y resultados de esa revisión.
+| Fecha | Verificación realizada | Resultado y alcance |
+| --- | --- | --- |
+| **17 de octubre de 2026** | Prueba focal `testClienteControllerValidacionesYMultiplesTelefonos`. | **1 prueba aprobada**, sin fallos, errores ni omisiones. Comprueba validaciones, múltiples teléfonos y su presentación con tipos mediante un DAO simulado. |
+| **3 de octubre de 2026** | Última verificación completa documentada en el [registro de verificación](docs/verificacion_implementacion.md). | **50 pruebas aprobadas:** 36 sin SQL Server y 14 de integración. Es evidencia histórica anterior a los cambios recientes. |
+
+La prueba focal del 17 de octubre no verifica la migración del esquema, la persistencia real de los tipos en SQL Server ni la interacción visual. La suite completa todavía debe ejecutarse sobre los cambios actuales; el resultado histórico no acredita esa nueva ejecución.
 
 ```powershell
-# Pruebas sin SQL Server; las 14 de integración se omiten explícitamente.
+# Prueba focal de clientes, con DAO simulado y sin SQL Server.
+mvn '-Dventas.it=false' '-Dtest=DespachoServiceTest#testClienteControllerValidacionesYMultiplesTelefonos' test
+
+# Pruebas sin SQL Server; las de integración quedan deshabilitadas.
 mvn clean test
 
 # Suite completa: requiere SQL Server, esquema y conexión configurados.
 mvn '-Dventas.it=true' clean verify
 ```
 
-Las pruebas cubren el flujo hasta factura, precios históricos, stock insuficiente y reversión, duplicados, confirmaciones concurrentes, fechas, selecciones desactivadas y recuperación en otro proceso Java. El ensayo Swing acciona menús y botones reales con respuestas de prueba para los diálogos. Las pruebas de integración crean sus propios datos y limpian únicamente esos registros; con integración habilitada, una conexión inaccesible hace fallar la suite.
+La suite incluye casos de flujo hasta factura, precios históricos, stock insuficiente y reversión, duplicados, confirmaciones concurrentes, fechas, selecciones desactivadas y recuperación en otro proceso Java. El ensayo Swing acciona menús y botones reales con respuestas de prueba para los diálogos. Las pruebas de integración crean sus propios datos y limpian únicamente esos registros; con integración habilitada, una conexión inaccesible hace fallar la suite. Los reportes de cada ejecución se generan en `target/surefire-reports` y no se versionan.
 
 Para revisar la base sin modificar registros: [verificar_operacion.sql](docs/verificar_operacion.sql) y [verificar_integridad.sql](docs/verificar_integridad.sql).
 
@@ -142,4 +190,6 @@ Para revisar la base sin modificar registros: [verificar_operacion.sql](docs/ver
 
 Esta entrega implementa el sistema de escritorio con despachos completos y facturación posterior. Android, API, reservas de stock, entregas parciales entre bodegas y devoluciones físicas quedan fuera del alcance actual. La columna de reservas permanece en cero; los borradores de factura son temporales y las facturas emitidas se guardan en SQL Server.
 
-La matriz y las pruebas aportan evidencia técnica; la defensa y el dominio del proyecto deben prepararse entre todos los integrantes. Antes de entregar el enlace del repositorio, publicar los cambios en `main`, sustituir el enlace del documento de defensa y comprobar el acceso del ingeniero a ambos recursos.
+**Pendientes del cambio en caliente:** actualmente se puede guardar un cliente sin teléfonos; si se exige al menos uno, falta aplicar esa regla. La vista ofrece los cuatro tipos solicitados, pero el servicio y la base no restringen estrictamente otros valores recibidos fuera de esa interfaz. También queda por demostrar el guardado, la consulta y la edición de los tipos con SQL Server y la interfaz real.
+
+Antes de entregar, ejecutar la verificación completa sobre la versión actual, ensayar la demostración y la defensa entre los integrantes, publicar los cambios correspondientes y comprobar que el ingeniero puede abrir los dos documentos enlazados al inicio.

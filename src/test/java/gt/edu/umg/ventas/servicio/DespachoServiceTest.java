@@ -79,14 +79,15 @@ public class DespachoServiceTest {
         Cliente nuevoConMismoNit = new Cliente(0L, "123456-7", "Otro", "", "", "");
         assertThrows(IllegalArgumentException.class, () -> controller.guardar(nuevoConMismoNit));
 
-        // Permite conservar su propio NIT al actualizar y depura múltiples teléfonos
+        // Permite conservar su propio NIT al actualizar y depura múltiples teléfonos con su tipo
         Cliente edicionMismoCliente = new Cliente(5L, "123456-7", "Empresa Editada S.A.", "Zona 10", "", "info@empresa.com");
         edicionMismoCliente.setTelefonos(Arrays.asList(" 5555-1111 ", "5555-2222", "5555-1111", "  "));
+        edicionMismoCliente.agregarTelefono("2222-3333", "Trabajo");
         controller.actualizar(edicionMismoCliente);
         assertEquals("Empresa Editada S.A.", actualizado.get().getNombre());
-        assertEquals(List.of("5555-1111", "5555-2222"), actualizado.get().getTelefonos());
+        assertEquals(List.of("5555-1111", "5555-2222", "2222-3333"), actualizado.get().getTelefonos());
         assertEquals("5555-1111", actualizado.get().getTelefono());
-        assertEquals("5555-1111, 5555-2222", actualizado.get().getTelefonosTexto());
+        assertEquals("5555-1111 (Personal), 5555-2222 (Personal), 2222-3333 (Trabajo)", actualizado.get().getTelefonosTexto());
 
         // Rechaza NIT de otro cliente al actualizar
         Cliente edicionOtroCliente = new Cliente(9L, "123456-7", "Intruso", "", "", "");

@@ -1,6 +1,7 @@
 package gt.edu.umg.ventas.dao;
 
 import gt.edu.umg.ventas.modelo.Cliente;
+import gt.edu.umg.ventas.modelo.Telefono;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -11,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Implementación JDBC para ClienteDAO con soporte 1:N de teléfonos en dbo.cliente_telefono.
+ * Implementación JDBC para ClienteDAO con soporte 1:N de teléfonos (número y tipo) en dbo.cliente_telefono.
  */
 public class ClienteDAOImpl implements ClienteDAO {
 
@@ -27,7 +28,7 @@ public class ClienteDAOImpl implements ClienteDAO {
         this.conexion = conexion != null ? conexion : new ConexionBD();
     }
 
-    // [CAMBIO 1:N TELÉFONOS]: Auto-migración en caliente que crea dbo.cliente_telefono si no existe y migra los teléfonos actuales.
+    // [CAMBIO 1:N TELÉFONOS]: Auto-migración en caliente ejecutada en pasos separados para evitar error de compilación T-SQL cuando falta la columna 'tipo'.
     private void asegurarTablaTelefonos(Connection con) throws SQLException {
         if (tablaVerificada) {
             return;
@@ -36,24 +37,35 @@ public class ClienteDAOImpl implements ClienteDAO {
             if (tablaVerificada) {
                 return;
             }
-            String ddl = "IF OBJECT_ID('dbo.cliente_telefono', 'U') IS NULL "
-                    + "BEGIN "
-                    + "    IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='cliente' AND COLUMN_NAME='id_cliente' AND DATA_TYPE='int') "
-                    + "        EXEC('CREATE TABLE dbo.cliente_telefono (id_telefono INT IDENTITY(1,1) PRIMARY KEY, id_cliente INT NOT NULL, telefono NVARCHAR(20) NOT NULL, CONSTRAINT FK_cliente_telefono_cliente FOREIGN KEY (id_cliente) REFERENCES dbo.cliente(id_cliente) ON DELETE CASCADE)'); "
-                    + "    ELSE "
-                    + "        CREATE TABLE dbo.cliente_telefono ("
-                    + "            id_telefono INT IDENTITY(1,1) PRIMARY KEY, "
-                    + "            id_cliente BIGINT NOT NULL, "
-                    + "            telefono NVARCHAR(20) NOT NULL, "
-                    + "            CONSTRAINT FK_cliente_telefono_cliente FOREIGN KEY (id_cliente) "
-                    + "                REFERENCES dbo.cliente(id_cliente) ON DELETE CASCADE"
-                    + "        ); "
-                    + "    INSERT INTO dbo.cliente_telefono (id_cliente, telefono) "
-                    + "    SELECT id_cliente, LTRIM(RTRIM(telefono)) FROM dbo.cliente "
-                    + "    WHERE telefono IS NOT NULL AND LTRIM(RTRIM(telefono)) <> ''; "
-                    + "END";
             try (Statement st = con.createStatement()) {
-                st.execute(ddl);
+                boolean tablaExiste = false;
+                try (ResultSet rs = st.executeQuery("SELECT OBJECT_ID('dbo.cliente_telefono', 'U')")) {
+                    if (rs.next() && rs.getObject(1) != null) {
+                        tablaExiste = true;
+                    }
+                }
+
+                if (!tablaExiste) {
+                    String ddlCrear = "IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='cliente' AND COLUMN_NAME='id_cliente' AND DATA_TYPE='int') "
+                            + "    EXEC('CREATE TABLE dbo.cliente_telefono (id_telefono INT IDENTITY(1,1) PRIMARY KEY, id_cliente INT NOT NULL, telefono NVARCHAR(20) NOT NULL, tipo NVARCHAR(30) NOT NULL DEFAULT ''Personal'', CONSTRAINT FK_cliente_telefono_cliente FOREIGN KEY (id_cliente) REFERENCES dbo.cliente(id_cliente) ON DELETE CASCADE)'); "
+                            + "ELSE "
+                            + "    EXEC('CREATE TABLE dbo.cliente_telefono (id_telefono INT IDENTITY(1,1) PRIMARY KEY, id_cliente BIGINT NOT NULL, telefono NVARCHAR(20) NOT NULL, tipo NVARCHAR(30) NOT NULL DEFAULT ''Personal'', CONSTRAINT FK_cliente_telefono_cliente FOREIGN KEY (id_cliente) REFERENCES dbo.cliente(id_cliente) ON DELETE CASCADE)');";
+                    st.execute(ddlCrear);
+
+                    st.execute("INSERT INTO dbo.cliente_telefono (id_cliente, telefono, tipo) "
+                            + "SELECT id_cliente, LTRIM(RTRIM(telefono)), 'Personal' FROM dbo.cliente "
+                            + "WHERE telefono IS NOT NULL AND LTRIM(RTRIM(telefono)) <> ''");
+                } else {
+                    boolean columnaTipoExiste = false;
+                    try (ResultSet rsCol = st.executeQuery("SELECT COL_LENGTH('dbo.cliente_telefono', 'tipo')")) {
+                        if (rsCol.next() && rsCol.getObject(1) != null) {
+                            columnaTipoExiste = true;
+                        }
+                    }
+                    if (!columnaTipoExiste) {
+                        st.execute("ALTER TABLE dbo.cliente_telefono ADD tipo NVARCHAR(30) NOT NULL DEFAULT 'Personal' WITH VALUES");
+                    }
+                }
                 tablaVerificada = true;
             }
         }
@@ -64,7 +76,7 @@ public class ClienteDAOImpl implements ClienteDAO {
         String sql = "INSERT INTO dbo.cliente (nit, nombre, direccion, telefono, correo) VALUES (?, ?, ?, ?, ?)";
         try (Connection con = conexion.obtenerConexion()) {
             asegurarTablaTelefonos(con);
-            // [CAMBIO 1:N TELÉFONOS]: Se abre transacción para guardar la cabecera del cliente y su lista de teléfonos de forma atómica.
+            // [CAMBIO 1:N TELÉFONOS]: Se abre transacción para guardar la cabecera del cliente y su colección de teléfonos (número y tipo) de forma atómica.
             con.setAutoCommit(false);
             try {
                 try (PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -81,8 +93,8 @@ public class ClienteDAOImpl implements ClienteDAO {
                         }
                     }
                 }
-                // [CAMBIO 1:N TELÉFONOS]: Inserta en lote todos los números de teléfono en dbo.cliente_telefono.
-                insertarTelefonos(con, cliente.getId(), cliente.getTelefonos());
+                // [CAMBIO 1:N TELÉFONOS]: Inserta en lote todos los objetos Telefono (número y tipo) en dbo.cliente_telefono.
+                insertarTelefonos(con, cliente.getId(), cliente.getListaTelefonos());
                 con.commit();
             } catch (Exception e) {
                 try { con.rollback(); } catch (SQLException ex) { e.addSuppressed(ex); }
@@ -102,7 +114,7 @@ public class ClienteDAOImpl implements ClienteDAO {
         String sqlDeleteTel = "DELETE FROM dbo.cliente_telefono WHERE id_cliente = ?";
         try (Connection con = conexion.obtenerConexion()) {
             asegurarTablaTelefonos(con);
-            // [CAMBIO 1:N TELÉFONOS]: Transacción para actualizar cliente, limpiar sus teléfonos anteriores y reinsertar los nuevos.
+            // [CAMBIO 1:N TELÉFONOS]: Transacción para actualizar cliente, limpiar sus teléfonos anteriores y reinsertar los nuevos con su tipo.
             con.setAutoCommit(false);
             try {
                 try (PreparedStatement ps = con.prepareStatement(sql)) {
@@ -116,12 +128,12 @@ public class ClienteDAOImpl implements ClienteDAO {
                         throw new IllegalStateException("No existe el cliente con ID " + cliente.getId() + " para actualizar.");
                     }
                 }
-                // [CAMBIO 1:N TELÉFONOS]: Elimina los teléfonos previos del cliente y registra la nueva lista en lote.
+                // [CAMBIO 1:N TELÉFONOS]: Elimina los teléfonos previos del cliente y registra la nueva colección (número y tipo) en lote.
                 try (PreparedStatement psDel = con.prepareStatement(sqlDeleteTel)) {
                     psDel.setLong(1, cliente.getId());
                     psDel.executeUpdate();
                 }
-                insertarTelefonos(con, cliente.getId(), cliente.getTelefonos());
+                insertarTelefonos(con, cliente.getId(), cliente.getListaTelefonos());
                 con.commit();
             } catch (Exception e) {
                 try { con.rollback(); } catch (SQLException ex) { e.addSuppressed(ex); }
@@ -135,18 +147,19 @@ public class ClienteDAOImpl implements ClienteDAO {
         }
     }
 
-    // [CAMBIO 1:N TELÉFONOS]: Método auxiliar que inserta en lote (addBatch/executeBatch) los teléfonos en dbo.cliente_telefono.
-    private void insertarTelefonos(Connection con, long idCliente, List<String> telefonos) throws SQLException {
+    // [CAMBIO 1:N TELÉFONOS]: Método auxiliar que inserta en lote (addBatch/executeBatch) cada Telefono (número y tipo) en dbo.cliente_telefono.
+    private void insertarTelefonos(Connection con, long idCliente, List<Telefono> telefonos) throws SQLException {
         if (telefonos == null || telefonos.isEmpty()) {
             return;
         }
-        String sqlTel = "INSERT INTO dbo.cliente_telefono (id_cliente, telefono) VALUES (?, ?)";
+        String sqlTel = "INSERT INTO dbo.cliente_telefono (id_cliente, telefono, tipo) VALUES (?, ?, ?)";
         try (PreparedStatement psTel = con.prepareStatement(sqlTel)) {
             boolean tieneAlguno = false;
-            for (String tel : telefonos) {
-                if (tel != null && !tel.isBlank()) {
+            for (Telefono tel : telefonos) {
+                if (tel != null && tel.getNumero() != null && !tel.getNumero().isBlank()) {
                     psTel.setLong(1, idCliente);
-                    psTel.setString(2, tel.trim());
+                    psTel.setString(2, tel.getNumero().trim());
+                    psTel.setString(3, Telefono.normalizarTipo(tel.getTipo()));
                     psTel.addBatch();
                     tieneAlguno = true;
                 }
@@ -236,7 +249,7 @@ public class ClienteDAOImpl implements ClienteDAO {
         return lista;
     }
 
-    // [CAMBIO 1:N TELÉFONOS]: Mapea los datos del cliente y consulta todos sus teléfonos en dbo.cliente_telefono.
+    // [CAMBIO 1:N TELÉFONOS]: Mapea los datos del cliente y consulta todos sus objetos Telefono (id_telefono, telefono, tipo) en dbo.cliente_telefono.
     private Cliente mapear(Connection con, ResultSet rs) throws SQLException {
         long idCliente = rs.getLong("id_cliente");
         String telefonoRespaldo = rs.getString("telefono");
@@ -249,26 +262,31 @@ public class ClienteDAOImpl implements ClienteDAO {
                 rs.getString("correo")
         );
 
-        List<String> telefonos = new ArrayList<>();
-        String sqlTel = "SELECT telefono FROM dbo.cliente_telefono WHERE id_cliente = ? ORDER BY id_telefono";
+        List<Telefono> telefonos = new ArrayList<>();
+        String sqlTel = "SELECT id_telefono, telefono, tipo FROM dbo.cliente_telefono WHERE id_cliente = ? ORDER BY id_telefono";
         try (PreparedStatement psTel = con.prepareStatement(sqlTel)) {
             psTel.setLong(1, idCliente);
             try (ResultSet rsTel = psTel.executeQuery()) {
                 while (rsTel.next()) {
-                    String t = rsTel.getString("telefono");
-                    if (t != null && !t.isBlank()) {
-                        telefonos.add(t.trim());
+                    String num = rsTel.getString("telefono");
+                    String tipo = rsTel.getString("tipo");
+                    if (num != null && !num.isBlank()) {
+                        telefonos.add(new Telefono(
+                                rsTel.getLong("id_telefono"),
+                                idCliente,
+                                num.trim(),
+                                Telefono.normalizarTipo(tipo)
+                        ));
                     }
                 }
             }
         }
-        // Si existen teléfonos en la tabla hija se asignan; de lo contrario se usa la columna telefono como respaldo.
         if (!telefonos.isEmpty()) {
-            cliente.setTelefonos(telefonos);
+            cliente.setListaTelefonos(telefonos);
         } else if (telefonoRespaldo != null && !telefonoRespaldo.isBlank()) {
-            cliente.setTelefonos(List.of(telefonoRespaldo.trim()));
+            cliente.setListaTelefonos(List.of(new Telefono(0, idCliente, telefonoRespaldo.trim(), "Personal")));
         } else {
-            cliente.setTelefonos(new ArrayList<>());
+            cliente.setListaTelefonos(new ArrayList<>());
         }
         return cliente;
     }

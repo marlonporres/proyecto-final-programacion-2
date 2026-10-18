@@ -3,6 +3,7 @@ package gt.edu.umg.ventas.vista;
 import gt.edu.umg.ventas.util.Dialogos;
 import gt.edu.umg.ventas.controlador.ClienteController;
 import gt.edu.umg.ventas.modelo.Cliente;
+import gt.edu.umg.ventas.modelo.Telefono;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -18,10 +19,12 @@ public class FrmClientes extends JInternalFrame {
     private JTextField txtNombre;
     private JTextField txtDireccion;
     private JTextField txtTelefono;
+    // [CAMBIO 1:N TELÉFONOS]: Selector de tipo de teléfono (Personal, Trabajo, Casa u Otro) exigido en el documento oficial.
+    private JComboBox<String> cmbTipoTelefono;
     private JTextField txtCorreo;
-    // [CAMBIO 1:N TELÉFONOS]: Modelo y componente JList para mostrar y gestionar múltiples teléfonos del cliente en la interfaz.
-    private DefaultListModel<String> modeloTelefonos;
-    private JList<String> lstTelefonos;
+    // [CAMBIO 1:N TELÉFONOS]: Modelo y componente JList de objetos Telefono (número y tipo) para gestionar múltiples teléfonos en la vista.
+    private DefaultListModel<Telefono> modeloTelefonos;
+    private JList<Telefono> lstTelefonos;
     private JTable tblClientes;
     private DefaultTableModel modeloTabla;
     private long idClienteSeleccionado = 0;
@@ -30,8 +33,8 @@ public class FrmClientes extends JInternalFrame {
         super("Catálogo de Clientes", true, true, true, true);
         this.controller = new ClienteController();
 
-        setSize(820, 560);
-        setMinimumSize(new Dimension(700, 440));
+        setSize(860, 560);
+        setMinimumSize(new Dimension(740, 440));
         initComponents();
         cargarDatos();
     }
@@ -70,15 +73,20 @@ public class FrmClientes extends JInternalFrame {
         txtCorreo = new JTextField(20);
         pnlNorte.add(txtCorreo, gbc);
 
-        // [CAMBIO 1:N TELÉFONOS]: Sección visual con campo de texto, botones "+ Añadir Teléfono" / "Quitar" y lista JList en JScrollPane.
+        // [CAMBIO 1:N TELÉFONOS]: Sección visual para ingresar Número + Tipo (Personal, Trabajo, Casa, Otro) y administrarlos en el JList.
         gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         pnlNorte.add(new JLabel("Teléfonos:"), gbc);
 
         JPanel pnlTelefonos = new JPanel(new BorderLayout(6, 4));
         JPanel pnlInputTel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        txtTelefono = new JTextField(12);
+        pnlInputTel.add(new JLabel("Número:"));
+        txtTelefono = new JTextField(11);
         pnlInputTel.add(txtTelefono);
+
+        pnlInputTel.add(new JLabel("Tipo:"));
+        cmbTipoTelefono = new JComboBox<>(new String[]{"Personal", "Trabajo", "Casa", "Otro"});
+        pnlInputTel.add(cmbTipoTelefono);
 
         JButton btnAgregarTel = new JButton("+ Añadir Teléfono");
         btnAgregarTel.addActionListener(e -> agregarTelefonoLista());
@@ -95,7 +103,7 @@ public class FrmClientes extends JInternalFrame {
         lstTelefonos.setVisibleRowCount(3);
         lstTelefonos.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         JScrollPane scrollTelefonos = new JScrollPane(lstTelefonos);
-        scrollTelefonos.setPreferredSize(new Dimension(260, 64));
+        scrollTelefonos.setPreferredSize(new Dimension(320, 64));
         pnlTelefonos.add(scrollTelefonos, BorderLayout.CENTER);
 
         gbc.gridx = 1; gbc.gridy = 2; gbc.gridwidth = 3; gbc.weightx = 1.0;
@@ -122,7 +130,7 @@ public class FrmClientes extends JInternalFrame {
         add(pnlNorte, BorderLayout.NORTH);
 
         // Panel Central: Tabla
-        String[] columnas = {"ID", "NIT", "Nombre", "Dirección", "Teléfonos", "Correo"};
+        String[] columnas = {"ID", "NIT", "Nombre", "Dirección", "Teléfonos (Número y Tipo)", "Correo"};
         modeloTabla = new DefaultTableModel(columnas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
@@ -140,7 +148,7 @@ public class FrmClientes extends JInternalFrame {
         add(new JScrollPane(tblClientes), BorderLayout.CENTER);
     }
 
-    // [CAMBIO 1:N TELÉFONOS]: Agrega el número escrito en txtTelefono al modeloTelefonos validando longitud y evitando duplicados.
+    // [CAMBIO 1:N TELÉFONOS]: Crea un objeto Telefono con su número y su tipo (Personal, Trabajo, Casa u Otro) y lo agrega al JList.
     private void agregarTelefonoLista() {
         String tel = txtTelefono.getText().trim();
         if (tel.isEmpty()) {
@@ -150,11 +158,24 @@ public class FrmClientes extends JInternalFrame {
             Dialogos.showMessageDialog(this, "El teléfono no puede exceder 20 caracteres.", "Validación", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        if (!modeloTelefonos.contains(tel)) {
-            modeloTelefonos.addElement(tel);
-        }
+        String tipo = (String) cmbTipoTelefono.getSelectedItem();
+        agregarOActualizarEnModelo(tel, tipo);
         txtTelefono.setText("");
+        cmbTipoTelefono.setSelectedIndex(0);
         txtTelefono.requestFocusInWindow();
+    }
+
+    // [CAMBIO 1:N TELÉFONOS]: Evita duplicar el mismo número en el JList; si ya existe actualiza su tipo, si no existe lo añade.
+    private void agregarOActualizarEnModelo(String numero, String tipo) {
+        for (int i = 0; i < modeloTelefonos.size(); i++) {
+            Telefono actual = modeloTelefonos.getElementAt(i);
+            if (actual.getNumero().equalsIgnoreCase(numero)) {
+                actual.setTipo(tipo);
+                modeloTelefonos.set(i, actual);
+                return;
+            }
+        }
+        modeloTelefonos.addElement(new Telefono(numero, tipo));
     }
 
     // [CAMBIO 1:N TELÉFONOS]: Quita el teléfono seleccionado actualmente en el JList.
@@ -171,13 +192,14 @@ public class FrmClientes extends JInternalFrame {
         txtNombre.setText("");
         txtDireccion.setText("");
         txtTelefono.setText("");
+        cmbTipoTelefono.setSelectedIndex(0);
         txtCorreo.setText("");
         // [CAMBIO 1:N TELÉFONOS]: Limpia la lista visual de teléfonos al reiniciar el formulario.
         modeloTelefonos.clear();
         tblClientes.clearSelection();
     }
 
-    // [CAMBIO 1:N TELÉFONOS]: Al seleccionar un cliente en la JTable, carga todos sus teléfonos en modeloTelefonos para poder editarlos.
+    // [CAMBIO 1:N TELÉFONOS]: Al seleccionar un cliente en la tabla, consulta sus teléfonos persistidos (número y tipo) y los muestra en el JList.
     private void cargarClienteSeleccionado() {
         int fila = tblClientes.getSelectedRow();
         if (fila >= 0) {
@@ -190,9 +212,10 @@ public class FrmClientes extends JInternalFrame {
                     txtNombre.setText(c.getNombre());
                     txtDireccion.setText(c.getDireccion() != null ? c.getDireccion() : "");
                     txtTelefono.setText("");
+                    cmbTipoTelefono.setSelectedIndex(0);
                     txtCorreo.setText(c.getCorreo() != null ? c.getCorreo() : "");
                     modeloTelefonos.clear();
-                    for (String tel : c.getTelefonos()) {
+                    for (Telefono tel : c.getListaTelefonos()) {
                         modeloTelefonos.addElement(tel);
                     }
                 }
@@ -217,7 +240,7 @@ public class FrmClientes extends JInternalFrame {
                         c.getNit(),
                         c.getNombre(),
                         c.getDireccion(),
-                        // [CAMBIO 1:N TELÉFONOS]: Muestra todos los teléfonos concatenados con coma en la columna "Teléfonos".
+                        // [CAMBIO 1:N TELÉFONOS]: Muestra todos los teléfonos con su número y su tipo en la tabla.
                         c.getTelefonosTexto(),
                         c.getCorreo()
                 });
@@ -236,21 +259,21 @@ public class FrmClientes extends JInternalFrame {
             return;
         }
 
-        // [CAMBIO 1:N TELÉFONOS]: Si el usuario dejó un teléfono escrito en txtTelefono sin presionar "+ Añadir Teléfono", se incorpora automáticamente.
+        // [CAMBIO 1:N TELÉFONOS]: Si el usuario dejó un teléfono escrito en txtTelefono sin presionar "+ Añadir Teléfono", lo agrega con su tipo seleccionado.
         String telPendiente = txtTelefono.getText().trim();
         if (!telPendiente.isEmpty()) {
             if (telPendiente.length() > 20) {
                 Dialogos.showMessageDialog(this, "El teléfono no puede exceder 20 caracteres.", "Validación", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            if (!modeloTelefonos.contains(telPendiente)) {
-                modeloTelefonos.addElement(telPendiente);
-            }
+            String tipoPendiente = (String) cmbTipoTelefono.getSelectedItem();
+            agregarOActualizarEnModelo(telPendiente, tipoPendiente);
             txtTelefono.setText("");
+            cmbTipoTelefono.setSelectedIndex(0);
         }
 
-        // [CAMBIO 1:N TELÉFONOS]: Construye la lista de teléfonos desde modeloTelefonos y la asigna a c.setTelefonos(...).
-        List<String> telefonos = new ArrayList<>();
+        // [CAMBIO 1:N TELÉFONOS]: Construye la colección List<Telefono> desde el JList y la envía al controlador.
+        List<Telefono> telefonos = new ArrayList<>();
         for (int i = 0; i < modeloTelefonos.size(); i++) {
             telefonos.add(modeloTelefonos.getElementAt(i));
         }
@@ -262,7 +285,7 @@ public class FrmClientes extends JInternalFrame {
             c.setNombre(nombre);
             c.setDireccion(txtDireccion.getText().trim());
             c.setCorreo(txtCorreo.getText().trim());
-            c.setTelefonos(telefonos);
+            c.setListaTelefonos(telefonos);
 
             if (idClienteSeleccionado > 0) {
                 controller.actualizar(c);
