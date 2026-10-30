@@ -1,0 +1,461 @@
+package gt.edu.umg.ventas.dao;
+
+import gt.edu.umg.ventas.modelo.*;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+public class OrdenVentaDAOImpl implements OrdenVentaDAO {
+    @Override
+    public boolean tieneDespachoConfirmado(int idOrden) {
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM dbo.Despacho WHERE id_orden = ? AND estado = 'CONFIRMADO'")) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        } catch (SQLException e) { throw new IllegalStateException("No se pudo verificar el despacho.", e); }
+    }
+
+
+    @Override
+    public void crear(OrdenVenta o) {
+        Integer idAnterior = o.getId();
+        String sql = "INSERT INTO dbo.OrdenVenta (numero_orden, fecha, id_cliente, id_usuario, total, estado, observaciones) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        try (Connection conn = ConexionBD.obtenerConexion()) {
+            conn.setAutoCommit(false);
+            try {
+                // Una ventana puede conservar un producto que otro mantenimiento desactivó.
+                // Verificar el estado persistido y mantenerlo estable hasta guardar la orden.
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT activo FROM dbo.producto WITH (HOLDLOCK) WHERE id_producto=?")) {
+                    for (DetalleOrdenVenta det : o.getDetalles()) {
+                        ps.setLong(1, det.getProducto().getIdProducto());
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (!rs.next() || !rs.getBoolean(1)) {
+                                throw new IllegalStateException("El producto " + det.getProducto().getCodigo()
+                                        + " ya no está activo. Actualice el catálogo antes de guardar.");
+                            }
+                        }
+                    }
+                }
+                try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                    stmt.setString(1, o.getNumeroOrden());
+                    stmt.setTimestamp(2, Timestamp.valueOf(o.getFecha()));
+                    stmt.setLong(3, o.getCliente().getIdCliente());
+                    stmt.setLong(4, o.getUsuario().getIdUsuario());
+                    stmt.setBigDecimal(5, o.getTotal());
+                    stmt.setString(6, o.getEstado().name());
+                    stmt.setString(7, o.getObservaciones());
+                    stmt.executeUpdate();
+                    try (ResultSet rs = stmt.getGeneratedKeys()) {
+                        if (!rs.next()) throw new SQLException("No se obtuvo el ID de la orden.");
+                        o.setId(rs.getInt(1));
+                    }
+                }
+
+                String sqlDet = "INSERT INTO dbo.DetalleOrdenVenta (id_orden, id_producto, cantidad, precio_unitario, subtotal) VALUES (?, ?, ?, ?, ?)";
+                try (PreparedStatement stmtDet = conn.prepareStatement(sqlDet, Statement.RETURN_GENERATED_KEYS)) {
+                    for (DetalleOrdenVenta det : o.getDetalles()) {
+                        stmtDet.setInt(1, o.getId());
+                        stmtDet.setLong(2, det.getProducto().getIdProducto());
+                        stmtDet.setInt(3, det.getCantidad());
+                        stmtDet.setBigDecimal(4, det.getPrecioUnitario());
+                        stmtDet.setBigDecimal(5, det.getSubtotal());
+                        stmtDet.addBatch();
+                    }
+                    stmtDet.executeBatch();
+                }
+
+                conn.commit();
+            } catch (Exception e) {
+                o.setId(idAnterior);
+                try { conn.rollback(); } catch (SQLException rollback) { e.addSuppressed(rollback); }
+                throw new RuntimeException("Error al guardar la orden de venta: " + e.getMessage(), e);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error de conexión al crear orden de venta: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public OrdenVenta obtener(int id) {
+        String sql = "SELECT o.id, o.numero_orden, o.fecha, o.total, o.estado, o.observaciones, "
+                + "c.id_cliente, c.nit, c.nombre AS cliente_nombre, c.direccion, c.telefono, c.correo, "
+                + "u.id_usuario, u.nombre AS usuario_nombre, u.nombre_usuario, u.rol, u.activo "
+                + "FROM dbo.OrdenVenta o "
+                + "INNER JOIN dbo.cliente c ON o.id_cliente = c.id_cliente "
+                + "INNER JOIN dbo.usuario u ON o.id_usuario = u.id_usuario "
+                + "WHERE o.id = ?";
+
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    OrdenVenta o = new OrdenVenta();
+                    o.setId(rs.getInt("id"));
+                    o.setNumeroOrden(rs.getString("numero_orden"));
+                    o.setFecha(rs.getTimestamp("fecha").toLocalDateTime());
+                    o.setTotal(rs.getBigDecimal("total"));
+                    o.setEstado(EstadoOrdenVenta.valueOf(rs.getString("estado")));
+                    o.setObservaciones(rs.getString("observaciones"));
+
+                    Cliente c = new Cliente(
+                            rs.getLong("id_cliente"),
+                            rs.getString("nit"),
+                            rs.getString("cliente_nombre"),
+                            rs.getString("direccion"),
+                            rs.getString("telefono"),
+                            rs.getString("correo")
+                    );
+                    o.setCliente(c);
+
+                    Usuario u = new Usuario(
+                            rs.getLong("id_usuario"),
+                            rs.getString("usuario_nombre"),
+                            rs.getString("nombre_usuario"),
+                            rs.getString("rol"),
+                            rs.getBoolean("activo")
+                    );
+                    o.setUsuario(u);
+
+                    cargarDetalles(conn, o);
+                    return o;
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error al obtener orden de venta: " + e.getMessage(), e);
+        }
+        return null;
+    }
+
+    @Override
+    public List<OrdenVenta> obtenerTodos() {
+        return obtenerPorEstado(null);
+    }
+
+    @Override
+    public List<OrdenVenta> obtenerPendientes() {
+        return obtenerPorEstado(EstadoOrdenVenta.PENDIENTE);
+    }
+
+    private List<OrdenVenta> obtenerPorEstado(EstadoOrdenVenta filtroEstado) {
+        List<OrdenVenta> lista = new ArrayList<>();
+        String sql = "SELECT o.id, o.numero_orden, o.fecha, o.total, o.estado, o.observaciones, "
+                + "c.id_cliente, c.nit, c.nombre AS cliente_nombre, c.direccion, c.telefono, c.correo, "
+                + "u.id_usuario, u.nombre AS usuario_nombre, u.nombre_usuario, u.rol, u.activo "
+                + "FROM dbo.OrdenVenta o "
+                + "INNER JOIN dbo.cliente c ON o.id_cliente = c.id_cliente "
+                + "INNER JOIN dbo.usuario u ON o.id_usuario = u.id_usuario "
+                + (filtroEstado != null ? "WHERE o.estado = ? " : "")
+                + "ORDER BY o.id DESC";
+
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            if (filtroEstado != null) {
+                stmt.setString(1, filtroEstado.name());
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    OrdenVenta o = new OrdenVenta();
+                    o.setId(rs.getInt("id"));
+                    o.setNumeroOrden(rs.getString("numero_orden"));
+                    o.setFecha(rs.getTimestamp("fecha").toLocalDateTime());
+                    o.setTotal(rs.getBigDecimal("total"));
+                    o.setEstado(EstadoOrdenVenta.valueOf(rs.getString("estado")));
+                    o.setObservaciones(rs.getString("observaciones"));
+
+                    Cliente c = new Cliente(
+                            rs.getLong("id_cliente"),
+                            rs.getString("nit"),
+                            rs.getString("cliente_nombre"),
+                            rs.getString("direccion"),
+                            rs.getString("telefono"),
+                            rs.getString("correo")
+                    );
+                    o.setCliente(c);
+
+                    Usuario u = new Usuario(
+                            rs.getLong("id_usuario"),
+                            rs.getString("usuario_nombre"),
+                            rs.getString("nombre_usuario"),
+                            rs.getString("rol"),
+                            rs.getBoolean("activo")
+                    );
+                    o.setUsuario(u);
+
+                    cargarDetalles(conn, o);
+                    lista.add(o);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error al listar órdenes de venta: " + e.getMessage(), e);
+        }
+        return lista;
+    }
+
+    private void cargarDetalles(Connection conn, OrdenVenta o) throws SQLException {
+        String sql = "SELECT d.id, d.id_orden, d.cantidad, d.precio_unitario, d.subtotal, "
+                + "p.id_producto, p.codigo, p.nombre AS prod_nombre, p.descripcion, p.precio_venta, p.activo, "
+                + "c.id_categoria, c.nombre AS cat_nombre, c.descripcion AS cat_desc, c.activa AS cat_activa "
+                + "FROM dbo.DetalleOrdenVenta d "
+                + "INNER JOIN dbo.producto p ON d.id_producto = p.id_producto "
+                + "INNER JOIN dbo.categoria c ON p.categoria_id = c.id_categoria "
+                + "WHERE d.id_orden = ?";
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, o.getId());
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Categoria cat = new Categoria(
+                            rs.getLong("id_categoria"),
+                            rs.getString("cat_nombre"),
+                            rs.getString("cat_desc"),
+                            rs.getBoolean("cat_activa")
+                    );
+                    Producto prod = new Producto(
+                            rs.getLong("id_producto"),
+                            rs.getString("codigo"),
+                            rs.getString("prod_nombre"),
+                            rs.getString("descripcion"),
+                            rs.getBigDecimal("precio_venta"),
+                            rs.getBoolean("activo"),
+                            cat
+                    );
+
+                    DetalleOrdenVenta det = new DetalleOrdenVenta();
+                    det.setId(rs.getInt("id"));
+                    det.setOrden(o);
+                    det.setProducto(prod);
+                    det.setCantidad(rs.getInt("cantidad"));
+                    det.setPrecioUnitario(rs.getBigDecimal("precio_unitario"));
+                    det.setSubtotal(rs.getBigDecimal("subtotal"));
+
+                    o.getDetalles().add(det);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void actualizar(OrdenVenta o) {
+        String sql = "UPDATE dbo.OrdenVenta SET estado = ?, observaciones = ? WHERE id = ?";
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, o.getEstado().name());
+            stmt.setString(2, o.getObservaciones());
+            stmt.setInt(3, o.getId());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error al actualizar orden de venta: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void eliminar(int id) {
+        String sql = "DELETE FROM dbo.OrdenVenta WHERE id = ?";
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error al eliminar orden de venta: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public List<OrdenVentaResumen> buscarPorFecha(LocalDateTime desde, LocalDateTime hasta) {
+        List<OrdenVentaResumen> lista = new ArrayList<>();
+        String sql = "SELECT o.id, o.numero_orden, o.fecha, c.nombre AS cliente, o.estado, o.total, "
+                + "ISNULL(d.estado, 'Pendiente') AS estado_despacho, "
+                + "ISNULL(b.nombre, '-') AS bodega, d.numero_despacho, f.numero AS numero_factura, f.estado AS estado_factura "
+                + "FROM dbo.OrdenVenta o "
+                + "INNER JOIN dbo.cliente c ON o.id_cliente = c.id_cliente "
+                + "LEFT JOIN dbo.Despacho d ON d.id_orden = o.id "
+                + "LEFT JOIN dbo.Bodega b ON d.id_bodega = b.id "
+                + "LEFT JOIN dbo.factura f ON f.id_orden = o.id "
+                + "WHERE o.fecha >= ? AND o.fecha < ? "
+                + "ORDER BY o.fecha DESC";
+
+        LocalDateTime hastaFin = hasta.plusDays(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime desdeInicio = desde.withHour(0).withMinute(0).withSecond(0).withNano(0);
+
+        try (Connection conn = ConexionBD.obtenerConexion();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setTimestamp(1, Timestamp.valueOf(desdeInicio));
+            stmt.setTimestamp(2, Timestamp.valueOf(hastaFin));
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    OrdenVentaResumen r = new OrdenVentaResumen();
+                    r.setId(rs.getInt("id"));
+                    r.setNumeroOrden(rs.getString("numero_orden"));
+                    r.setFecha(rs.getTimestamp("fecha").toLocalDateTime());
+                    r.setNombreCliente(rs.getString("cliente"));
+                    r.setEstado(EstadoOrdenVenta.valueOf(rs.getString("estado")));
+                    r.setTotal(rs.getBigDecimal("total"));
+                    r.setEstadoDespacho(rs.getString("estado_despacho"));
+                    r.setNombreBodega(rs.getString("bodega"));
+                    r.setNumeroDespacho(rs.getString("numero_despacho"));
+                    r.setNumeroFactura(rs.getString("numero_factura"));
+                    r.setEstadoFactura(rs.getString("estado_factura"));
+                    lista.add(r);
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error en consulta de fechas: " + e.getMessage(), e);
+        }
+        return lista;
+    }
+    @Override
+    public OrdenVenta obtenerPorIdParaActualizar(Connection con, int idOrden) {
+        String sql = "SELECT id, numero_orden, fecha, total, estado, observaciones, id_cliente, id_usuario "
+                + "FROM dbo.OrdenVenta WITH (UPDLOCK, HOLDLOCK) WHERE id = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                OrdenVenta o = new OrdenVenta();
+                o.setId(rs.getInt("id"));
+                o.setNumeroOrden(rs.getString("numero_orden"));
+                o.setFecha(rs.getTimestamp("fecha").toLocalDateTime());
+                o.setTotal(rs.getBigDecimal("total"));
+                o.setEstado(EstadoOrdenVenta.valueOf(rs.getString("estado")));
+                o.setObservaciones(rs.getString("observaciones"));
+                Cliente cliente = new Cliente();
+                cliente.setIdCliente(rs.getLong("id_cliente"));
+                o.setCliente(cliente);
+                Usuario usuario = new Usuario();
+                usuario.setIdUsuario(rs.getLong("id_usuario"));
+                o.setUsuario(usuario);
+                cargarDetalles(con, o);
+                return o;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo obtener la orden de venta para actualizar.", e);
+        }
+    }
+
+    @Override
+    public void cambiarEstado(Connection con, int idOrden, EstadoOrdenVenta estado) {
+        String sql = "UPDATE dbo.OrdenVenta SET estado = ? WHERE id = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, estado.name());
+            ps.setInt(2, idOrden);
+            if (ps.executeUpdate() != 1) {
+                throw new IllegalStateException("La orden cambió de estado.");
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo actualizar el estado de la orden.", e);
+        }
+    }
+
+    @Override
+    public boolean tieneDocumentosRelacionados(int idOrden) {
+        try (Connection con = ConexionBD.obtenerConexion()) {
+            return tieneDocumentosRelacionados(con, idOrden);
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudieron consultar los documentos de la orden.", e);
+        }
+    }
+
+    @Override
+    public boolean tieneDocumentosRelacionados(Connection con, int idOrden) {
+        String sql = "SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.Despacho WHERE id_orden=?) "
+                + "OR EXISTS (SELECT 1 FROM dbo.factura WHERE id_orden=?) THEN 1 ELSE 0 END";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, idOrden);
+            ps.setInt(2, idOrden);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() && rs.getBoolean(1); }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudieron consultar los documentos de la orden.", e);
+        }
+    }
+
+    @Override
+    public void actualizarCompleta(Connection con, OrdenVenta orden) {
+        try {
+            // Mantener estables el cliente y los productos hasta confirmar la edición.
+            try (PreparedStatement ps = con.prepareStatement(
+                    "SELECT id_cliente FROM dbo.cliente WITH (HOLDLOCK) WHERE id_cliente=?")) {
+                ps.setLong(1, orden.getCliente().getIdCliente());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) throw new java.util.NoSuchElementException("El cliente no existe.");
+                }
+            }
+            try (PreparedStatement ps = con.prepareStatement(
+                    "SELECT activo FROM dbo.producto WITH (HOLDLOCK) WHERE id_producto=?")) {
+                for (DetalleOrdenVenta linea : orden.getDetalles()) {
+                    ps.setLong(1, linea.getProducto().getIdProducto());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next() || !rs.getBoolean(1)) {
+                            throw new IllegalStateException("Un producto ya no está activo. Actualice el catálogo.");
+                        }
+                    }
+                }
+            }
+            try (PreparedStatement ps = con.prepareStatement(
+                    "UPDATE dbo.OrdenVenta SET id_cliente=?, total=?, observaciones=? WHERE id=? AND estado='PENDIENTE'")) {
+                ps.setLong(1, orden.getCliente().getIdCliente());
+                ps.setBigDecimal(2, orden.getTotal());
+                ps.setString(3, orden.getObservaciones());
+                ps.setInt(4, orden.getId());
+                if (ps.executeUpdate() != 1) throw new IllegalStateException("La orden cambió de estado.");
+            }
+            try (PreparedStatement ps = con.prepareStatement("DELETE FROM dbo.DetalleOrdenVenta WHERE id_orden=?")) {
+                ps.setInt(1, orden.getId());
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = con.prepareStatement(
+                    "INSERT INTO dbo.DetalleOrdenVenta (id_orden,id_producto,cantidad,precio_unitario,subtotal) VALUES (?,?,?,?,?)")) {
+                for (DetalleOrdenVenta linea : orden.getDetalles()) {
+                    ps.setInt(1, orden.getId());
+                    ps.setLong(2, linea.getProducto().getIdProducto());
+                    ps.setInt(3, linea.getCantidad());
+                    ps.setBigDecimal(4, linea.getPrecioUnitario());
+                    ps.setBigDecimal(5, linea.getSubtotal());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo actualizar la orden completa.", e);
+        }
+    }
+
+    @Override
+    public List<OperacionLinea> consultarTrazabilidad(int idOrden) {
+        List<OperacionLinea> lineas = new ArrayList<>();
+        String sql = "SELECT o.numero_orden, p.codigo, od.cantidad, dd.cantidad_despachada, od.precio_unitario, b.nombre, "
+                + "d.numero_despacho, m.tipo_movimiento, m.cantidad AS salida, f.numero, f.total "
+                + "FROM dbo.OrdenVenta o JOIN dbo.DetalleOrdenVenta od ON od.id_orden = o.id "
+                + "JOIN dbo.producto p ON p.id_producto = od.id_producto "
+                + "LEFT JOIN dbo.Despacho d ON d.id_orden = o.id LEFT JOIN dbo.Bodega b ON b.id = d.id_bodega "
+                + "LEFT JOIN dbo.DetalleDespacho dd ON dd.id_despacho = d.id AND dd.id_producto = p.id_producto "
+                + "LEFT JOIN dbo.MovimientoInventario m ON m.id_producto = p.id_producto AND m.id_bodega = b.id "
+                + "AND m.referencia = CONCAT('Despacho ', d.numero_despacho) AND m.tipo_movimiento = 'SALIDA' "
+                + "LEFT JOIN dbo.factura f ON f.id_orden = o.id WHERE o.id = ? ORDER BY od.id";
+        try (Connection con = ConexionBD.obtenerConexion(); PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    lineas.add(new OperacionLinea(rs.getString(1), rs.getString(2), rs.getInt(3),
+                            (Integer) rs.getObject(4), rs.getBigDecimal(5), rs.getString(6), rs.getString(7),
+                            rs.getString(8), (Integer) rs.getObject(9), rs.getString(10), rs.getBigDecimal(11)));
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("No se pudo consultar la operación.", e);
+        }
+        return List.copyOf(lineas);
+    }
+}
+
