@@ -21,3 +21,14 @@ Fecha: 30 de octubre de 2026.
 4. Conectar el teléfono/emulador, crear una orden por la URL pública y comparar el ID/número y sus detalles en SQL. Esta evidencia sigue pendiente; no se marcan esos puntos como completados.
 
 No se ejecutaron migraciones ni ventas ni se borraron registros comerciales en esta implementación. Los materiales de estudio reflejan los cambios hechos y mantienen separadas las comprobaciones pendientes.
+## Actualización posterior: publicación y pruebas
+
+Los tres repositorios ya están publicados y main remoto fue comprobado contra el commit local. Java conserva el historial anterior sin force push.
+
+SQL Server y la API local están disponibles. La API terminó 70 pruebas aprobadas, incluidas nueve con SQL real, sin fallos, errores ni omisiones. También se verificó una prueba local de POST 201, persistencia mediante consulta SQL y cancelación de una orden QA con inventario intacto. Los identificadores y detalles de la evidencia se conservan localmente en target, excluido de Git; no se publican datos comerciales.
+
+Android conserva 33 pruebas aprobadas. La prueba anterior procede de la computadora, no del teléfono; queda pendiente Android por el túnel público.
+
+El usuario autorizó expresamente la exposición temporal de la API actual. ngrok está instalado, pero el intento de autenticación requiere configurar el authtoken real de la cuenta: guardar el texto TU_TOKEN no lo sustituye. La configuración estructuralmente válida no garantiza autenticación ni un túnel activo.
+
+Esta actualización sustituye los pendientes iniciales de publicación e inicio de SQL. El siguiente paso es configurar la cuenta ngrok y realizar la demostración desde teléfono.
