@@ -43,3 +43,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verificar-entrega.
 Ese script guarda una consulta HTTP de la orden en target/evidencia-entrega.json. No certifica por sí solo que el POST provino del teléfono ni sustituye la consulta directa SQL. Completar el registro con las capturas/resultados reales.
 
 Al terminar, cerrar el túnel. El cierre del directorio padre se limita a procesos identificados del proyecto; no elimina los puentes ADB ni los daemons de otros proyectos.
+
+## Encontrar el token: está en tu cuenta, no en una carpeta
+
+Abre https://dashboard.ngrok.com/get-started/your-authtoken e inicia sesión. Copia el authtoken de TU cuenta. `TU_TOKEN` y `SU_TOKEN_PRIVADO` son marcadores, no valores utilizables. El mensaje «saved» confirma que se guardó texto, no que ngrok lo haya autenticado.
+
+En PowerShell puedes ejecutar:
+
+```powershell
+$tokenNgrok = Read-Host 'Pega aquí el authtoken REAL copiado del panel de ngrok'
+ngrok config add-authtoken $tokenNgrok
+Remove-Variable tokenNgrok
+ngrok config check
+```
+
+No compartas ese token ni capturas que lo muestren. `ngrok.yml` es un archivo, así que no se abre con cd. La instalación de Microsoft Store administra su configuración; no necesitas localizar ni editar el archivo para configurar tu cuenta. El túnel real se prueba ejecutando el lanzador después de confirmar la salud de la API.
