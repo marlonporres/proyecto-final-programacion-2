@@ -1,3 +1,5 @@
+> Para el arranque/cierre integrado y la explicación de 5–7 minutos, consulte [FLUJO_BREVE_DEMOSTRACION.md](FLUJO_BREVE_DEMOSTRACION.md).
+
 # Demostración reproducible: los 8 puntos
 
 ## Preparación (antes de la exposición)
