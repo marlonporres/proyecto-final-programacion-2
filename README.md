@@ -1,3 +1,5 @@
+> **Aprende visualmente:** la [guía web interactiva](docs/guia-interactiva/README.md) permite seguir una orden con datos ficticios, explorar la arquitectura y probar qué sucede si falla una parte.
+
 **Repositorio de entrega:** [ventas-escritorio](https://github.com/marlonporres/proyecto-final-programacion-2)
 
 > **Entrega vigente: Android + API REST (8 puntos).** Leer [estudio y defensa](docs/GUIA_ESTUDIO_8_PUNTOS.md), [demostración con ngrok](docs/DEMOSTRACION_8_PUNTOS.md) y [enlaces de entrega](docs/ENTREGA_REPOSITORIOS.md). El flujo evaluado es Android → ngrok → API → SQL → respuesta.

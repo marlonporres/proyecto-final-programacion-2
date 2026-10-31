@@ -1,0 +1,120 @@
+{
+  "url": "http://127.0.0.1:4177/",
+  "checks": [
+    {
+      "name": "Página y simulador disponibles",
+      "status": "PASS"
+    },
+    {
+      "name": "Acceso por teclado y enlace de salto",
+      "status": "PASS"
+    },
+    {
+      "name": "Escritorio no inventa una orden antes de guardar",
+      "status": "PASS"
+    },
+    {
+      "name": "Recorrido normal completo con subtotal, IVA y total coherentes",
+      "status": "PASS"
+    },
+    {
+      "name": "Consulta explícita en escritorio recupera la misma orden ficticia",
+      "status": "PASS"
+    },
+    {
+      "name": "Inspector opcional de mensajes abre y cierra",
+      "status": "PASS"
+    },
+    {
+      "name": "Responsabilidad, entrada, salida y capas de API explorables",
+      "status": "PASS"
+    },
+    {
+      "name": "Selector de arquitectura cambia capas y selección accesible",
+      "status": "PASS"
+    },
+    {
+      "name": "Escenario ngrok: fallo en etapa 2 sin persistencia ficticia",
+      "status": "PASS"
+    },
+    {
+      "name": "Escenario sql: fallo en etapa 5 sin persistencia ficticia",
+      "status": "PASS"
+    },
+    {
+      "name": "Escenario invalid: fallo en etapa 1 sin persistencia ficticia",
+      "status": "PASS"
+    },
+    {
+      "name": "Cantidad cero conserva el formulario y muestra validación",
+      "status": "PASS"
+    },
+    {
+      "name": "Iniciar, pausar, avanzar, retroceder y reiniciar responden",
+      "status": "PASS"
+    },
+    {
+      "name": "Tres preguntas presentan retroalimentación inmediata y cierre",
+      "status": "PASS"
+    },
+    {
+      "name": "Tres enlaces correctos y seguros a los repositorios",
+      "status": "PASS"
+    },
+    {
+      "name": "Sin desbordamiento horizontal en 1440, 768, 390 y 320 px",
+      "status": "PASS"
+    },
+    {
+      "name": "Menú móvil abre, navega y cierra",
+      "status": "PASS"
+    },
+    {
+      "name": "Movimiento reducido conserva navegación sin animar el paquete",
+      "status": "PASS"
+    },
+    {
+      "name": "Cero errores JavaScript y cero llamadas a API/base reales",
+      "status": "PASS"
+    }
+  ],
+  "screenshots": [
+    "normal-complete.png",
+    "scenario-ngrok.png",
+    "scenario-sql.png",
+    "scenario-invalid.png",
+    "guide-1440.png",
+    "guide-768.png",
+    "guide-390.png",
+    "guide-320.png"
+  ],
+  "layouts": [
+    {
+      "viewport": 1440,
+      "width": 1440,
+      "docWidth": 1440,
+      "overflow": []
+    },
+    {
+      "viewport": 768,
+      "width": 768,
+      "docWidth": 768,
+      "overflow": []
+    },
+    {
+      "viewport": 390,
+      "width": 390,
+      "docWidth": 390,
+      "overflow": []
+    },
+    {
+      "viewport": 320,
+      "width": 320,
+      "docWidth": 320,
+      "overflow": []
+    }
+  ],
+  "consoleErrors": [],
+  "apiRequests": [],
+  "status": "PASS"
+}

@@ -54,3 +54,7 @@ El escritorio usa JDBC directo a la misma base; la app Android utiliza HTTP y no
 ## Ensayo personal
 
 Explica el flujo en un minuto; señala en código dónde se construye el JSON, dónde está POST y dónde se hace commit/rollback. Después realiza el recorrido del documento DEMOSTRACION_8_PUNTOS.md. Prioriza estos requisitos antes de explicar fotografías u otras funciones adicionales.
+
+## Practicar con una guía interactiva
+
+Abrir [guia-interactiva/README.md](guia-interactiva/README.md) y seguir las instrucciones. Es un material educativo con datos ficticios; el guion de entrega sigue requiriendo operar las aplicaciones reales y verificar la persistencia.
